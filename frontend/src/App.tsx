@@ -9,10 +9,12 @@ import ResetPassword from "./pages/ResetPassword";
 import CareseekerDashboard from "./pages/CareseekerDashboard";
 import CaregiverDashboard from "./pages/CaregiverDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import MessagesPage from "./pages/MessagesPage";
 import CaregiverUpload from "./pages/CaregiverUpload";
 import AdminVerify from "./pages/AdminVerify";
 import CaregiverBookingRequests from "./pages/CaregiverBookingRequests";
 import CareseekerBookings from "./pages/CareseekerBookings";
+import PaymentVerify from "./pages/PaymentVerify";
 
 import Profile from "./pages/Profile";
 import ProtectedRoute from "./utils/ProtectedRoute";
@@ -114,6 +116,26 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["caregiver"]}>
               <CaregiverBookingRequests />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Payment verification - handles Khalti redirect */}
+        <Route
+          path="/payment/verify"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker"]}>
+              <PaymentVerify />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Messages page - accessible by both careseeker and caregiver */}
+        <Route
+          path="/messages"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker", "caregiver"]}>
+              <MessagesPage />
             </ProtectedRoute>
           }
         />

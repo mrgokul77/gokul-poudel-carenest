@@ -11,4 +11,5 @@ urlpatterns = [
     path("", BookingCreateView.as_view(), name="booking-create"),
     path("list/", BookingListView.as_view(), name="booking-list"),
     path("<int:pk>/respond/", BookingRespondView.as_view(), name="booking-respond"),
+    # Removed cancellation endpoint
 ]

@@ -46,4 +46,23 @@ bookingsApi.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Separate instance for payment endpoints
+export const paymentsApi = axios.create({
+  baseURL: "http://127.0.0.1:8000/api/payments/",
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+paymentsApi.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem("access");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 export default api;

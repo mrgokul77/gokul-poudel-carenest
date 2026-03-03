@@ -287,9 +287,7 @@ const CaregiverUpload = () => {
                 >
                   Choose Front Image
                 </label>
-                <p className="text-xs text-gray-500 mt-2">
-                  PDF, JPEG, PNG • Max 5MB
-                </p>
+              
                 {frontPreview && (
                   <div className="mt-4">
                     <img
@@ -322,9 +320,7 @@ const CaregiverUpload = () => {
                 >
                   Choose Back Image
                 </label>
-                <p className="text-xs text-gray-500 mt-2">
-                  PDF, JPEG, PNG • Max 5MB
-                </p>
+                
                 {backPreview && (
                   <div className="mt-4">
                     <img
@@ -340,7 +336,7 @@ const CaregiverUpload = () => {
             {/* Certificate Upload */}
             <div className="mb-6">
               <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Certificate Upload <span className="text-red-500">*</span>
+                Certificate <span className="text-red-500">*</span>
               </label>
               <div className="border-2 border-dashed border-gray-300 bg-gray-50 rounded-lg p-6 flex flex-col items-center justify-center hover:border-gray-400 transition">
                 <UploadCloud className="text-gray-600 w-10 h-10 mb-2" />
@@ -357,9 +353,6 @@ const CaregiverUpload = () => {
                 >
                   Choose Certificate
                 </label>
-                <p className="text-xs text-gray-500 mt-2">
-                  PDF, JPEG, PNG • Max 5MB
-                </p>
                 {certificatePreview && (
                   <div className="mt-4">
                     <img

@@ -5,7 +5,6 @@ import type { CaregiverProfileCardData } from "../components/CaregiverProfileCar
 import api from "../api/axios";
 import axios from "axios";
 import {
-  Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
@@ -29,6 +28,8 @@ interface VerificationRequest {
   citizenship_front_url: string | null;
   citizenship_back_url: string | null;
   certificate_url: string | null;
+  certification_year: number | null;
+  gender: string | null;
 }
 
 const AdminVerify = () => {
@@ -36,8 +37,10 @@ const AdminVerify = () => {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<
-    "pending" | "approved" | "rejected"
-  >("pending");
+    "all" | "pending" | "approved" | "rejected"
+  >("all");
+  const [filterGender, setFilterGender] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("recent");
 
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -63,7 +66,7 @@ const AdminVerify = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, [filterStatus]);
+  }, []);
 
   const fetchRequests = async () => {
     setLoading(true);
@@ -143,31 +146,13 @@ const AdminVerify = () => {
     }
   };
 
-  const badge = (status: VerificationRequest["verification_status"]) => {
-    const styles = {
-      pending: "bg-amber-50 text-amber-800",
-      approved: "bg-emerald-50 text-emerald-800",
-      rejected: "bg-red-50 text-red-800",
-    };
-    const icons = {
-      pending: <Clock className="w-3.5 h-3.5" />,
-      approved: <CheckCircle className="w-3.5 h-3.5" />,
-      rejected: <XCircle className="w-3.5 h-3.5" />,
-    };
-    return (
-      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded ${styles[status]}`}>
-        {icons[status]}
-        {status.charAt(0).toUpperCase() + status.slice(1)}
-      </span>
-    );
-  };
-
   const openProfileModal = async (userId: number) => {
     setProfileModalUserId(userId);
     setProfileModalData(null);
     setProfileModalLoading(true);
     try {
       const res = await api.get(`admin/profile/${userId}/`);
+      console.log("[AdminVerify] Profile modal data:", res.data); // TEMP: verify caregiver fields
       setProfileModalData(res.data);
     } catch {
       setProfileModalData(null);
@@ -203,14 +188,40 @@ const AdminVerify = () => {
     setCarouselIndex((prev) => (prev - 1 + carouselDocuments.length) % carouselDocuments.length);
   };
 
-  const filteredRequests = requests.filter((req) =>
-    filterStatus === "pending"
-      ? req.verification_status === "pending"
-      : req.verification_status === filterStatus,
-  );
+  const filteredRequests = requests.filter((req) => {
+    // Status filter
+    if (filterStatus !== "all" && req.verification_status !== filterStatus) {
+      return false;
+    }
+    
+    // Gender filter
+    if (filterGender !== "all") {
+      if (filterGender === "male" && req.gender !== "male") return false;
+      if (filterGender === "female" && req.gender !== "female") return false;
+      if (filterGender === "prefer_not_to_say" && req.gender !== "prefer_not_to_say") return false;
+    }
+    
+    return true;
+  });
+
+  // Sort filtered requests
+  const sortedRequests = [...filteredRequests].sort((a, b) => {
+    if (sortBy === "recent") {
+      return new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime();
+    } else if (sortBy === "oldest") {
+      return new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime();
+    }
+    return 0;
+  });
+
+  const resetFilters = () => {
+    setFilterStatus("all");
+    setFilterGender("all");
+    setSortBy("recent");
+  };
 
   // Apply search filter
-  const searchedRequests = filteredRequests.filter(
+  const searchedRequests = sortedRequests.filter(
     (req) =>
       req.username.toLowerCase().includes(appliedSearch.toLowerCase()) ||
       req.email.toLowerCase().includes(appliedSearch.toLowerCase())
@@ -226,15 +237,7 @@ const AdminVerify = () => {
   // Reset page when filter or search changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterStatus, appliedSearch]);
-
-  const counts = {
-    pending: requests.filter((r) => r.verification_status === "pending").length,
-    approved: requests.filter((r) => r.verification_status === "approved")
-      .length,
-    rejected: requests.filter((r) => r.verification_status === "rejected")
-      .length,
-  };
+  }, [filterStatus, filterGender, sortBy, appliedSearch]);
 
   return (
     <div className="min-h-screen bg-green-50">
@@ -256,63 +259,80 @@ const AdminVerify = () => {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left: Quick Actions (same style as Profile Tips) */}
-          <div className="lg:col-span-3 order-2 lg:order-1">
-            <div className="bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm sticky top-6">
-              <h3 className="text-base font-bold text-gray-800 mb-3 flex items-center gap-2">
-                <span className="w-8 h-8 rounded-lg bg-gray-100 text-gray-700 flex items-center justify-center text-sm font-bold">
-                  i
-                </span>
-                Quick Actions
-              </h3>
-              <div className="space-y-2">
+          {/* Left: Filter Caregivers */}
+          <div className="lg:col-span-3 order-2 lg:order-1 hidden md:block">
+            <div className="space-y-4 sticky top-6">
+              {/* Filter Header */}
+              <div className="bg-green-50 border border-gray-200 rounded-xl p-4 shadow-sm">
+                <h3 className="text-base font-bold text-gray-800 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                  Filter Caregivers
+                </h3>
+              </div>
+
+              {/* Verification Status Filter Card */}
+              <div className="bg-green-50 border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div className="bg-green-100 rounded-lg px-3 py-2 mb-3">
+                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Verification Status</span>
+                </div>
+                <div className="space-y-2 px-1">
+                  {[
+                    { value: "all", label: "All" },
+                    { value: "pending", label: "Pending" },
+                    { value: "approved", label: "Approved" },
+                    { value: "rejected", label: "Rejected" },
+                  ].map((option) => (
+                    <label key={option.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="filterStatus"
+                        value={option.value}
+                        checked={filterStatus === option.value}
+                        onChange={(e) => setFilterStatus(e.target.value as "all" | "pending" | "approved" | "rejected")}
+                        className="w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Gender Filter Card */}
+              <div className="bg-green-50 border border-gray-200 rounded-xl p-4 shadow-sm">
+                <div className="bg-green-100 rounded-lg px-3 py-2 mb-3">
+                  <span className="text-xs font-semibold text-green-700 uppercase tracking-wide">Gender</span>
+                </div>
+                <div className="space-y-2 px-1">
+                  {[
+                    { value: "all", label: "All" },
+                    { value: "male", label: "Male" },
+                    { value: "female", label: "Female" },
+                    { value: "prefer_not_to_say", label: "Prefer not to say" },
+                  ].map((option) => (
+                    <label key={option.value} className="flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                      <input
+                        type="radio"
+                        name="filterGender"
+                        value={option.value}
+                        checked={filterGender === option.value}
+                        onChange={(e) => setFilterGender(e.target.value)}
+                        className="w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
+                      />
+                      {option.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reset Button Card */}
+              <div className="bg-green-50 border border-gray-200 rounded-xl p-4 shadow-sm">
                 <button
-                  type="button"
-                  onClick={() => setFilterStatus("pending")}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition bg-green-50 border ${
-                    filterStatus === "pending"
-                      ? "border-gray-400 text-gray-900"
-                      : "border-gray-200 text-gray-700 hover:bg-gray-50/80"
-                  }`}
+                  onClick={resetFilters}
+                  className="w-full py-3 text-sm font-semibold text-white bg-gradient-to-r from-green-600 to-green-500 rounded-xl shadow-sm transition-all duration-200 hover:from-green-700 hover:to-green-600 hover:shadow-md active:scale-[0.98]"
                 >
-                  <span className="inline-flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-amber-700/60" />
-                    <span>
-                      Pending {counts.pending > 0 && `(${counts.pending})`}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterStatus("approved")}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition bg-green-50 border ${
-                    filterStatus === "approved"
-                      ? "border-gray-400 text-gray-900"
-                      : "border-gray-200 text-gray-700 hover:bg-gray-50/80"
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-700/60" />
-                    <span>
-                      Approved {counts.approved > 0 && `(${counts.approved})`}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFilterStatus("rejected")}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition bg-green-50 border ${
-                    filterStatus === "rejected"
-                      ? "border-gray-400 text-gray-900"
-                      : "border-gray-200 text-gray-700 hover:bg-gray-50/80"
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <XCircle className="w-4 h-4 text-red-700/50" />
-                    <span>
-                      Rejected {counts.rejected > 0 && `(${counts.rejected})`}
-                    </span>
-                  </span>
+                  Reset Filters
                 </button>
               </div>
             </div>
@@ -479,7 +499,7 @@ const AdminVerify = () => {
       {/* Reject Modal */}
       {showRejectModal && selectedRequest && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-5 rounded-lg w-full max-w-md mx-4">
+          <div className="bg-white p-5 rounded-lg w-full max-w-md mx-4 border border-gray-200 shadow-lg">
             <h3 className="text-base font-medium text-gray-800 mb-3">
               Reject Verification for {selectedRequest.username}
             </h3>
@@ -487,7 +507,7 @@ const AdminVerify = () => {
             <textarea
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
-              className="w-full border border-gray-300 rounded p-2.5 mb-4 text-sm bg-green-50"
+              className="w-full border border-gray-300 rounded p-2.5 mb-4 text-sm bg-white focus:ring-2 focus:ring-gray-300 focus:border-gray-400 focus:outline-none"
               rows={4}
               placeholder="Reason for rejection (required)"
             />
@@ -499,9 +519,9 @@ const AdminVerify = () => {
                   setRejectionReason("");
                   setSelectedRequest(null);
                 }}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                className="px-3 py-1.5 text-sm border border-gray-300 rounded bg-white hover:bg-gray-50"
               >
-                Cancel
+                {/* Cancel button removed */}
               </button>
               <button
                 onClick={rejectVerification}

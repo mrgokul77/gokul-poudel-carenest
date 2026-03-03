@@ -57,18 +57,20 @@ const Navbar = () => {
             <Link to="/careseeker/bookings" className={isActive("/careseeker/bookings")}>
               My Bookings
             </Link>
+            <Link to="/messages" className={isActive("/messages")}>
+              Messages
+            </Link>
           </>
         )}
 
         {/* CAREGIVER */}
         {role === "caregiver" && (
           <>
-
-            <Link to="/messages" className={isActive("/messages")}>
-              Messages
-            </Link>
             <Link to="/caregiver/booking-requests" className={isActive("/caregiver/booking-requests")}>
               Booking Requests
+            </Link>
+            <Link to="/messages" className={isActive("/messages")}>
+              Messages
             </Link>
           </>
         )}

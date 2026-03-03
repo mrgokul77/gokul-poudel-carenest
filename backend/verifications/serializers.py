@@ -69,6 +69,8 @@ class AdminCaregiverVerificationSerializer(serializers.ModelSerializer):
     citizenship_front_url = serializers.SerializerMethodField()
     citizenship_back_url = serializers.SerializerMethodField()
     certificate_url = serializers.SerializerMethodField()
+    certification_year = serializers.SerializerMethodField()
+    gender = serializers.SerializerMethodField()
 
     class Meta:
         model = CaregiverVerification
@@ -86,6 +88,8 @@ class AdminCaregiverVerificationSerializer(serializers.ModelSerializer):
             'uploaded_at',
             'verified_at',
             'verified_by_email',
+            'certification_year',
+            'gender',
         ]
         read_only_fields = ['uploaded_at', 'verified_at']
 
@@ -114,4 +118,22 @@ class AdminCaregiverVerificationSerializer(serializers.ModelSerializer):
     
     def get_certificate_url(self, obj):
         return self._get_file_url(obj.certificate)
+
+    def get_certification_year(self, obj):
+        try:
+            caregiver_profile = obj.user.caregiver_profile
+            if caregiver_profile:
+                return caregiver_profile.certification_year
+        except Exception:
+            pass
+        return None
+
+    def get_gender(self, obj):
+        try:
+            caregiver_profile = obj.user.caregiver_profile
+            if caregiver_profile:
+                return caregiver_profile.gender
+        except Exception:
+            pass
+        return None
 

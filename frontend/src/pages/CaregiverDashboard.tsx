@@ -7,6 +7,22 @@ import { bookingsApi } from "../api/axios";
 
 const MODAL_SHOWN_KEY = "verification_modal_shown";
 
+type ModalType = "incomplete_profile" | "verification_required" | "pending_review" | null;
+
+interface ProfileData {
+  phone?: string;
+  address?: string;
+  verification_status?: string | null;
+  caregiver_details?: {
+    gender?: string;
+    training_authority?: string;
+    certification_year?: number | string;
+    available_hours?: string;
+    hourly_rate?: number | string;
+    service_types?: string[];
+  };
+}
+
 interface Booking {
   id: number;
   family_name: string;
@@ -17,6 +33,8 @@ interface Booking {
 
 const CaregiverDashboard = () => {
   const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [modalType, setModalType] = useState<ModalType>(null);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,16 +46,81 @@ const CaregiverDashboard = () => {
     fetchBookings();
   }, []);
 
+  const validateProfileCompleteness = (profile: ProfileData): string[] => {
+    const errors: string[] = [];
+    const details = profile.caregiver_details || {};
+
+    // Phone must be exactly 10 digits
+    const phone = profile.phone?.replace(/\D/g, "") || "";
+    if (phone.length !== 10) {
+      errors.push("Phone (must be exactly 10 digits)");
+    }
+
+    // Address is required
+    if (!profile.address || profile.address.trim() === "") {
+      errors.push("Address");
+    }
+
+    // Caregiver-specific fields
+    if (!details.gender || details.gender.trim() === "") {
+      errors.push("Gender");
+    }
+
+    if (!details.training_authority || details.training_authority.trim() === "") {
+      errors.push("Training Authority");
+    }
+
+    if (!details.certification_year) {
+      errors.push("Certification Year");
+    }
+
+    if (!details.available_hours || details.available_hours.trim() === "") {
+      errors.push("Available Hours");
+    }
+
+    // Hourly rate must be greater than 0
+    const rate = Number(details.hourly_rate);
+    if (!details.hourly_rate || rate <= 0) {
+      errors.push("Hourly Rate (must be greater than 0)");
+    }
+
+    // At least one service type selected
+    if (!details.service_types || details.service_types.length === 0) {
+      errors.push("At least one Service Type");
+    }
+
+    return errors;
+  };
+
   const checkVerificationStatus = async () => {
     if (sessionStorage.getItem(MODAL_SHOWN_KEY) === "true") return;
 
     try {
       const res = await api.get("/profile/");
-      const verificationStatus = res.data.verification_status;
-      if (verificationStatus !== "approved") {
+      const profile: ProfileData = res.data;
+      const verificationStatus = profile.verification_status;
+
+      // Check profile completeness first
+      const profileErrors = validateProfileCompleteness(profile);
+
+      if (profileErrors.length > 0) {
+        // Profile is incomplete
+        setModalType("incomplete_profile");
+        setMissingFields(profileErrors);
+        setShowVerificationModal(true);
+        sessionStorage.setItem(MODAL_SHOWN_KEY, "true");
+      } else if (verificationStatus === "pending") {
+        // Profile complete, verification pending
+        setModalType("pending_review");
+        setShowVerificationModal(true);
+        sessionStorage.setItem(MODAL_SHOWN_KEY, "true");
+      } else if (!verificationStatus || verificationStatus === "rejected") {
+        // Profile complete, needs verification
+        setModalType("verification_required");
         setShowVerificationModal(true);
         sessionStorage.setItem(MODAL_SHOWN_KEY, "true");
       }
+      // If approved, do not show popup
     } catch (err) {
       console.error("Failed to fetch verification status", err);
     }
@@ -61,6 +144,8 @@ const CaregiverDashboard = () => {
       <DocumentVerificationModal
         isOpen={showVerificationModal}
         onClose={() => setShowVerificationModal(false)}
+        modalType={modalType}
+        missingFields={missingFields}
       />
 
       <div className="max-w-5xl mx-auto px-6 py-8">

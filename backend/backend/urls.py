@@ -7,6 +7,7 @@ urlpatterns = [
     path('api/user/', include('accounts.urls')),        # auth, registration, profiles
     path('api/verifications/', include('verifications.urls')),  # document upload, admin verification
     path('api/bookings/', include('bookings.urls')),    # caregiver list, booking CRUD
+    path('api/payments/', include('payments.urls')),    # Khalti payment integration
 ]
 
 # Serve uploaded files (profile images, verification docs) in development

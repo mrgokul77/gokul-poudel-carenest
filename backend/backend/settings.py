@@ -5,10 +5,10 @@ from datetime import timedelta
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
 # Quick-start development settings - unsuitable for production
@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'accounts',
     'verifications',
     'bookings',
+    'payments',
     'corsheaders',
 
 ]
@@ -174,3 +175,9 @@ PASSWORD_RESET_TIMEOUT = 900  # 15 minutes in seconds
 # settings.py
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Frontend URL for Khalti redirect
+FRONTEND_URL = "http://localhost:5173"
+
+# Khalti Payment Gateway Settings
+KHALTI_SECRET_KEY = os.getenv("KHALTI_SECRET_KEY")

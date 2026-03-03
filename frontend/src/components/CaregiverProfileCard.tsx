@@ -24,6 +24,7 @@ export interface CaregiverProfileCardData {
     available_hours?: string;
     bio?: string;
     gender?: string | null;
+    hourly_rate?: number | string | null;
   } | null;
 }
 
@@ -116,15 +117,16 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
                 </div>
               </div>
             )}
-            {profile.role === "caregiver" && cd?.gender && (
+            {profile.role === "caregiver" && (
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
                   Gender
                 </label>
                 <div className="bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg text-gray-700 text-sm">
-                  {cd.gender === "male" && "Male"}
-                  {cd.gender === "female" && "Female"}
-                  {cd.gender === "prefer_not_to_say" && "Prefer not to say"}
+                  {cd?.gender === "male" && "Male"}
+                  {cd?.gender === "female" && "Female"}
+                  {cd?.gender === "prefer_not_to_say" && "Prefer not to say"}
+                  {!cd?.gender && "Not set"}
                 </div>
               </div>
             )}
@@ -160,6 +162,14 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
                 </label>
                 <div className="bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg text-gray-700">
                   {cd?.available_hours || "Flexible"}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
+                  Hourly Rate (Rs.)
+                </label>
+                <div className="bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg text-gray-700">
+                  {cd?.hourly_rate ? `Rs. ${cd.hourly_rate}` : "Not set"}
                 </div>
               </div>
             </div>

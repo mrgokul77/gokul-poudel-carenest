@@ -13,9 +13,53 @@ from .serializers import (
 )
 from .permissions import IsCaregiver
 from .utils import Util
+from accounts.models import UserProfile, CaregiverProfile
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def validate_caregiver_profile_completeness(user):
+    """
+    Validates that a caregiver has completed all required profile fields
+    before allowing document upload.
+    Returns (is_valid, missing_fields)
+    """
+    missing_fields = []
+
+    # Check UserProfile fields
+    try:
+        profile = user.profile
+        phone = profile.phone.replace(' ', '').replace('-', '') if profile.phone else ''
+        if len(phone) != 10 or not phone.isdigit():
+            missing_fields.append("Phone (must be exactly 10 digits)")
+        if not profile.address or not profile.address.strip():
+            missing_fields.append("Address")
+    except UserProfile.DoesNotExist:
+        missing_fields.extend(["Phone", "Address"])
+
+    # Check CaregiverProfile fields
+    try:
+        caregiver = user.caregiver_profile
+        if not caregiver.gender or not caregiver.gender.strip():
+            missing_fields.append("Gender")
+        if not caregiver.training_authority or not caregiver.training_authority.strip():
+            missing_fields.append("Training Authority")
+        if not caregiver.certification_year:
+            missing_fields.append("Certification Year")
+        if not caregiver.available_hours or not caregiver.available_hours.strip():
+            missing_fields.append("Available Hours")
+        if not caregiver.hourly_rate or caregiver.hourly_rate <= 0:
+            missing_fields.append("Hourly Rate (must be greater than 0)")
+        if not caregiver.service_types or len(caregiver.service_types) == 0:
+            missing_fields.append("At least one Service Type")
+    except CaregiverProfile.DoesNotExist:
+        missing_fields.extend([
+            "Gender", "Training Authority", "Certification Year",
+            "Available Hours", "Hourly Rate", "Service Types"
+        ])
+
+    return len(missing_fields) == 0, missing_fields
 
 
 class CaregiverDocumentUploadView(APIView):
@@ -37,6 +81,17 @@ class CaregiverDocumentUploadView(APIView):
 
     def post(self, request):
         """Upload all verification documents at once"""
+        # Validate profile completeness before accepting documents
+        is_valid, missing_fields = validate_caregiver_profile_completeness(request.user)
+        if not is_valid:
+            return Response(
+                {
+                    "error": "Complete profile before submitting verification documents.",
+                    "missing_fields": missing_fields
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Check if already verified
         try:
             existing = CaregiverVerification.objects.get(user=request.user)

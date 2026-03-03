@@ -99,7 +99,8 @@ class CaregiverProfileSerializer(serializers.ModelSerializer):
             "certification_year",
             "available_hours",
             "bio",
-            "gender"
+            "gender",
+            "hourly_rate"
         ]
 
 class UserProfileSerializer(serializers.ModelSerializer):

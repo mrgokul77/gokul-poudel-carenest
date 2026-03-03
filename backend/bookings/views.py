@@ -2,6 +2,10 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from .permissions import IsCareSeeker
+
+    # Removed BookingCancelView
+from django.utils import timezone
 from accounts.models import User, CaregiverProfile
 from verifications.models import CaregiverVerification
 from .models import Booking
@@ -19,13 +23,78 @@ def get_verified_caregiver_ids():
     )
 
 
+def get_active_bookings_for_caregiver(caregiver_id):
+    """
+    Returns active bookings for a caregiver that are still ongoing or in the future.
+    
+    A booking is considered "active" and blocks availability when:
+    1. Its status is 'accepted' or 'paid' (confirmed bookings)
+    2. Its end time is still in the future (not yet completed)
+    
+    Past bookings (even if status is 'accepted'/'paid') are automatically 
+    considered completed and don't block availability.
+    """
+    now = timezone.now()
+    
+    # Get all accepted/paid bookings for this caregiver
+    bookings = Booking.objects.filter(
+        caregiver_id=caregiver_id,
+        status__in=["accepted", "paid"]
+    )
+    
+    # Filter to only those that are still ongoing or in the future
+    # We use Python filtering because end_datetime is a computed property
+    active_bookings = [b for b in bookings if b.end_datetime > now]
+    
+    return active_bookings
+
+
+def caregiver_has_overlap(caregiver_id, date, start_time, duration_hours, exclude_booking_id=None):
+    """
+    Check if a caregiver has any overlapping active bookings for the given time slot.
+    
+    This is the core availability check used when:
+    - Creating a new booking
+    - Accepting a booking request
+    
+    Args:
+        caregiver_id: The caregiver to check
+        date: The proposed booking date
+        start_time: The proposed start time
+        duration_hours: The proposed duration
+        exclude_booking_id: Optional booking ID to exclude (used when checking existing booking)
+        
+    Returns:
+        True if there's an overlap (caregiver is NOT available), False otherwise
+    """
+    active_bookings = get_active_bookings_for_caregiver(caregiver_id)
+    
+    for booking in active_bookings:
+        # Skip the booking we're checking (for update scenarios)
+        if exclude_booking_id and booking.id == exclude_booking_id:
+            continue
+            
+        if booking.overlaps_with(date, start_time, duration_hours):
+            return True
+    
+    return False
+
+
 class VerifiedCaregiverListView(APIView):
     """Lists only verified caregivers - used in Find Caregiver page"""
     permission_classes = [IsAuthenticated, IsCareSeeker]
 
     def get(self, request):
         verified_ids = get_verified_caregiver_ids()
-        profiles = CaregiverProfile.objects.filter(user_id__in=verified_ids).select_related("user", "user__profile")
+        
+        # Filter only caregivers who are ready for booking:
+        # - verified, has service_types, and available_hours
+        profiles = (
+            CaregiverProfile.objects.filter(user_id__in=verified_ids)
+            .exclude(service_types=[])  # must have at least one service
+            .exclude(available_hours="")  # must have available hours
+            .select_related("user", "user__profile")
+        )
         
         # Optional filters from query params
         location = request.query_params.get("location", "").strip()
@@ -91,10 +160,33 @@ class BookingCreateView(APIView):
 
         serializer = BookingCreateSerializer(data=request.data)
         if serializer.is_valid():
+            # Extract booking details for overlap check
+            date = serializer.validated_data.get("date")
+            start_time = serializer.validated_data.get("start_time")
+            duration_hours = serializer.validated_data.get("duration_hours", 1)
+            
+            # Check if the caregiver has any overlapping active bookings for this time slot
+            # This ensures we don't double-book a caregiver even if they have multiple requests
+            if caregiver_has_overlap(caregiver_id, date, start_time, duration_hours):
+                return Response(
+                    {"error": "This caregiver is not available during the selected time slot. Please choose a different date/time."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
+            # Calculate total_amount from caregiver's hourly_rate
+            try:
+                caregiver_profile = CaregiverProfile.objects.get(user=caregiver)
+                hourly_rate = caregiver_profile.hourly_rate or 0
+            except CaregiverProfile.DoesNotExist:
+                hourly_rate = 0
+            
+            total_amount = float(hourly_rate) * duration_hours
+            
             booking = serializer.save(
                 family=request.user,
                 caregiver=caregiver,
                 status="pending",
+                total_amount=total_amount,
             )
             return Response(
                 BookingSerializer(booking, context={"request": request}).data,
@@ -148,16 +240,20 @@ class BookingRespondView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Prevent accepting multiple bookings at once
+        # When accepting, check for time conflicts with other active bookings
+        # This uses the new time-aware overlap logic that considers end times
         if new_status == "accepted":
-            existing_accepted = Booking.objects.filter(
-                caregiver=request.user,
-                status="accepted"
-            ).exclude(pk=pk).first()
+            has_overlap = caregiver_has_overlap(
+                caregiver_id=request.user.id,
+                date=booking.date,
+                start_time=booking.start_time,
+                duration_hours=booking.duration_hours,
+                exclude_booking_id=booking.id  # Don't compare booking with itself
+            )
             
-            if existing_accepted:
+            if has_overlap:
                 return Response(
-                    {"error": "Caregiver already has an active accepted booking"},
+                    {"error": "You have another booking that overlaps with this time slot. Please reject this request or complete the conflicting booking first."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 

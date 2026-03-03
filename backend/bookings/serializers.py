@@ -5,6 +5,7 @@ from accounts.models import User, CaregiverProfile
 
 class CaregiverListSerializer(serializers.ModelSerializer):
     """Serializes caregiver data for the Find Caregiver list view"""
+    booking_status = serializers.SerializerMethodField()
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
     user_id = serializers.IntegerField(source="user.id", read_only=True)
@@ -15,6 +16,7 @@ class CaregiverListSerializer(serializers.ModelSerializer):
     profile_image = serializers.SerializerMethodField()
     bio = serializers.CharField(read_only=True)
     gender = serializers.CharField(read_only=True, allow_null=True)
+    hourly_rate = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True, allow_null=True)
     verification_status = serializers.SerializerMethodField()
     address = serializers.SerializerMethodField()
     has_active_booking = serializers.SerializerMethodField()
@@ -32,10 +34,22 @@ class CaregiverListSerializer(serializers.ModelSerializer):
             "profile_image",
             "bio",
             "gender",
+            "hourly_rate",
             "verification_status",
             "address",
             "has_active_booking",
+            "booking_status",
         ]
+    def get_booking_status(self, obj):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated and request.user.role == "careseeker":
+            booking = Booking.objects.filter(
+                family=request.user,
+                caregiver=obj.user
+            ).order_by('-created_at').first()
+            if booking:
+                return booking.status if booking.status != "cancelled" else None
+        return None
 
     def get_profile_image(self, obj):
         try:
@@ -74,16 +88,24 @@ class CaregiverListSerializer(serializers.ModelSerializer):
         return False
 
 
+
 class BookingCreateSerializer(serializers.ModelSerializer):
     """Validates and creates new booking request"""
     service_types = serializers.ListField(child=serializers.CharField(), required=True)
     person_name = serializers.CharField(required=True, max_length=255)
     person_age = serializers.IntegerField(required=True, min_value=0, max_value=150)
     start_time = serializers.TimeField(required=True)
-    emergency_contact_name = serializers.CharField(required=False, allow_blank=True, max_length=255)
     emergency_contact_phone = serializers.CharField(required=True, max_length=20)
     additional_info = serializers.CharField(required=False, allow_blank=True)
-    notes = serializers.CharField(required=False, allow_blank=True)
+    service_address = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_emergency_contact_phone(self, value):
+        value = value.strip()
+        if not value.isdigit() or len(value) != 10:
+            raise serializers.ValidationError("Phone number must be exactly 10 digits.")
+        return value
+
+    
 
     class Meta:
         model = Booking
@@ -95,30 +117,37 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "date",
             "start_time",
             "duration_hours",
-            "emergency_contact_name",
             "emergency_contact_phone",
             "additional_info",
-            "notes",
+            "service_address",
+
         ]
 
     def validate_date(self, value):
         from django.utils import timezone
-        if value < timezone.localdate():
-            raise serializers.ValidationError("Date cannot be in the past")
-        return value
-
-    def validate_duration_hours(self, value):
-        if value < 1 or value > 24:
-            raise serializers.ValidationError("Duration must be between 1 and 24 hours")
-        return value
-
-    def validate_service_types(self, value):
-        if not value or len(value) == 0:
-            raise serializers.ValidationError("At least one service must be selected")
+        today = timezone.localdate()
+        if value < today:
+            raise serializers.ValidationError("You cannot select a past date or time.")
         return value
 
     def validate(self, data):
-        """Ensure requested services are actually offered by this caregiver"""
+        """Ensure requested services are actually offered by this caregiver and validate date/time"""
+        from django.utils import timezone
+        from datetime import datetime
+        
+        date = data.get("date")
+        start_time = data.get("start_time")
+        
+        if date and start_time:
+            today = timezone.localdate()
+            if date == today:
+                now = timezone.localtime()
+                current_time = now.time()
+                if start_time < current_time:
+                    raise serializers.ValidationError({
+                        "start_time": ["You cannot select a past date or time."]
+                    })
+        
         caregiver_id = data.get("caregiver")
         if caregiver_id:
             try:
@@ -135,6 +164,16 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Caregiver profile not found")
         return data
 
+    def validate_duration_hours(self, value):
+        if value < 1 or value > 24:
+            raise serializers.ValidationError("Duration must be between 1 and 24 hours")
+        return value
+
+    def validate_service_types(self, value):
+        if not value or len(value) == 0:
+            raise serializers.ValidationError("At least one service must be selected")
+        return value
+
 
 class BookingSerializer(serializers.ModelSerializer):
     """Full booking details - used for list and detail views"""
@@ -142,6 +181,7 @@ class BookingSerializer(serializers.ModelSerializer):
     caregiver_name = serializers.CharField(source="caregiver.username", read_only=True)
     family_profile_image = serializers.SerializerMethodField()
     caregiver_profile_image = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -159,14 +199,26 @@ class BookingSerializer(serializers.ModelSerializer):
             "date",
             "start_time",
             "duration_hours",
-            "emergency_contact_name",
+            "total_amount",
             "emergency_contact_phone",
+            "service_address",
+
             "additional_info",
-            "notes",
             "status",
+            "payment_status",
             "created_at",
         ]
-        read_only_fields = ["family", "status", "created_at"]
+        read_only_fields = ["family", "status", "created_at", "total_amount"]
+
+    def get_payment_status(self, obj):
+        """Get payment status: pending if accepted but not paid, or actual payment status"""
+        if obj.status == "accepted":
+            if hasattr(obj, "payment"):
+                return obj.payment.status
+            return "pending"  # Payment is pending if booking accepted but no payment record yet
+        elif obj.status == "paid":
+            return "completed"
+        return None  # No payment needed for pending/rejected bookings
 
     def get_family_profile_image(self, obj):
         try:

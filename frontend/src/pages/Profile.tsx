@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import Navbar from "../components/Navbar";
 import {
@@ -15,37 +15,47 @@ import {
   Shield,
   Edit2,
   Camera,
+  Heart,
+  Handshake,
+  Home,
+  HousePlus,
 } from "lucide-react";
 
-// Available service types for caregiver profiles
+// Mapping of service name to icon component
+const SERVICE_ICONS: { [key: string]: React.ElementType } = {
+  "Elderly Companionship": Heart,
+  "Daily Living Assistance": Handshake,
+  "Medication Reminders": HousePlus,
+  "Light Household Help": Home,
+};
+
 const SERVICE_TYPES = [
   "Elderly Companionship",
   "Daily Living Assistance",
-  "Personal Care Support",
-  "Medication Reminders",
-  "Meal Preparation",
-  "Mobility Assistance",
+
+  "Medication Reminders",  
   "Light Household Help",
-  "Basic Health Monitoring",
+  
 ];
 
 // Descriptions shown in the services guide section
 const SERVICES_GUIDE = [
   { name: "Elderly Companionship", description: "Support and companionship for older adults." },
   { name: "Daily Living Assistance", description: "Help with daily tasks such as dressing and mobility." },
-  { name: "Meal Preparation", description: "Assistance with cooking and meal planning." },
   { name: "Medication Reminders", description: "Support to ensure medications are taken on time." },
   { name: "Light Household Help", description: "Basic cleaning and household assistance." },
-  { name: "Personal Care Support", description: "Help with hygiene and personal care needs." },
+ 
 ];
 
 const Profile = () => {
   const { userId: viewUserId } = useParams<{ userId: string }>();
   const isAdminView = Boolean(viewUserId);
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState<boolean>(true);
   const [mode, setMode] = useState<"view" | "edit">("view");
   const [saving, setSaving] = useState<boolean>(false);
+  const [profileValidationErrors, setProfileValidationErrors] = useState<string[]>([]);
 
   const [profile, setProfile] = useState<any>(null);
   const [verificationStatus, setVerificationStatus] = useState<string | null>(
@@ -53,6 +63,60 @@ const Profile = () => {
   );
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [message, setMessage] = useState<any>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+
+  /* --------------------- PROFILE VALIDATION FOR UPLOAD --------------------- */
+  const validateProfileForUpload = (): boolean => {
+    const errors: string[] = [];
+
+    // Phone must be exactly 10 digits
+    if (!form.phone || form.phone.replace(/\D/g, "").length !== 10) {
+      errors.push("Phone (must be exactly 10 digits)");
+    }
+
+    // Address is required
+    if (!form.address || form.address.trim() === "") {
+      errors.push("Address");
+    }
+
+    // Caregiver-specific fields
+    if (!caregiverForm.gender || caregiverForm.gender.trim() === "") {
+      errors.push("Gender");
+    }
+
+    if (!caregiverForm.training_authority || caregiverForm.training_authority.trim() === "") {
+      errors.push("Training Authority");
+    }
+
+    if (!caregiverForm.certification_year) {
+      errors.push("Certification Year");
+    }
+
+    if (!caregiverForm.available_hours || caregiverForm.available_hours.trim() === "") {
+      errors.push("Available Hours");
+    }
+
+    // Hourly rate must be greater than 0
+    const rate = Number(caregiverForm.hourly_rate);
+    if (!caregiverForm.hourly_rate || rate <= 0) {
+      errors.push("Hourly Rate (must be greater than 0)");
+    }
+
+    // At least one service type selected
+    if (!caregiverForm.service_types || caregiverForm.service_types.length === 0) {
+      errors.push("At least one Service Type");
+    }
+
+    setProfileValidationErrors(errors);
+    return errors.length === 0;
+  };
+
+  const handleUploadDocumentsClick = () => {
+    if (validateProfileForUpload()) {
+      setProfileValidationErrors([]);
+      navigate("/caregiver/upload-documents");
+    }
+  };
 
   const [form, setForm] = useState({
     phone: "",
@@ -67,6 +131,7 @@ const Profile = () => {
     available_hours: "",
     bio: "",
     gender: "" as string,
+    hourly_rate: "" as string | number,
   });
 
   /* --------------------------- LOAD PROFILE --------------------------- */
@@ -84,6 +149,11 @@ const Profile = () => {
       const url = isAdminView ? `/admin/profile/${viewUserId}/` : "/profile/";
       const res = await api.get(url);
       const data = res.data;
+
+      console.log("[Profile] Loaded profile data:", data); // TEMP: verify caregiver fields
+      if (data.caregiver_details) {
+        console.log("[Profile] Caregiver details:", data.caregiver_details); // TEMP: verify caregiver fields
+      }
 
       setProfile(data);
       setVerificationStatus(data.verification_status || null);
@@ -105,6 +175,7 @@ const Profile = () => {
           available_hours: data.caregiver_details.available_hours || "",
           bio: data.caregiver_details.bio || "",
           gender: data.caregiver_details.gender || "",
+          hourly_rate: data.caregiver_details.hourly_rate ?? "",
         });
       }
     } catch (err) {
@@ -120,9 +191,18 @@ const Profile = () => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  const handlePhoneChange = (e: any) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setForm({ ...form, phone: value });
+    if (phoneError) setPhoneError(null);
+  };
+
   const handleCaregiverChange = (e: any) => {
     const { name, value } = e.target;
     if (name === "certification_year" && value !== "" && (Number(value) < 1900 || Number(value) > 2100)) {
+      return;
+    }
+    if (name === "hourly_rate" && value !== "" && Number(value) < 0) {
       return;
     }
     setCaregiverForm({ ...caregiverForm, [name]: value });
@@ -153,6 +233,12 @@ const Profile = () => {
   /* --------------------------- SAVE PROFILE --------------------------- */
 
   const saveProfile = async () => {
+    // Validate phone number
+    if (!/^\d{10}$/.test(form.phone)) {
+      setPhoneError("Phone number must be exactly 10 digits.");
+      return;
+    }
+
     setSaving(true);
     setMessage(null);
 
@@ -174,6 +260,10 @@ const Profile = () => {
             caregiverForm.certification_year === "" || caregiverForm.certification_year == null
               ? null
               : Number(caregiverForm.certification_year),
+          hourly_rate:
+            caregiverForm.hourly_rate === "" || caregiverForm.hourly_rate == null
+              ? null
+              : Number(caregiverForm.hourly_rate),
         };
         await api.patch("/profile/caregiver/", payload);
       }
@@ -212,14 +302,14 @@ const Profile = () => {
   }
 
   return (
-    <div className="min-h-screen bg-green-50">
+    <div className="h-screen bg-green-50 flex flex-col overflow-hidden">
       <Navbar />
 
       <div
         className={
           profile?.role === "caregiver" || profile?.role === "careseeker"
-            ? "max-w-6xl mx-auto px-6 py-10"
-            : "max-w-3xl mx-auto px-6 py-10"
+            ? "max-w-6xl mx-auto px-6 py-6 flex-1 overflow-hidden w-full"
+            : "max-w-3xl mx-auto px-6 py-6 flex-1 overflow-auto w-full"
         }
       >
         {/* Admin view: simple back arrow to Verify Caregivers */}
@@ -257,17 +347,17 @@ const Profile = () => {
         <div
           className={
             profile?.role === "caregiver" || profile?.role === "careseeker"
-              ? "grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
+              ? "grid grid-cols-1 lg:grid-cols-12 gap-10 items-start h-full"
               : ""
           }
         >
-          {/* Left placeholder (admin view only) – preserves layout when Profile Tips hidden */}
-          {isAdminView && (profile?.role === "caregiver" || profile?.role === "careseeker") && (
-            <div className="lg:col-span-3 order-2 lg:order-1" aria-hidden="true" />
+          {/* Left placeholder (admin view, caregiver only) – preserves layout when Profile Tips hidden */}
+          {isAdminView && profile?.role === "caregiver" && (
+            <div className="lg:col-span-3 order-1" aria-hidden="true" />
           )}
-          {/* Left section – Profile Tips (careseeker: same layout/styling as caregiver); hidden in admin view */}
+          {/* Left section – Profile Tips (careseeker); hidden in admin view */}
           {!isAdminView && profile?.role === "careseeker" && (
-            <div className="lg:col-span-3 order-2 lg:order-1">
+            <div className="lg:col-span-3 order-1">
               <div className="bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm sticky top-6">
                 <h3 className="text-base font-bold text-gray-800 mb-3 flex items-center gap-2">
                   <span className="w-8 h-8 rounded-lg bg-green-100 text-green-700 flex items-center justify-center text-sm font-bold">
@@ -306,7 +396,7 @@ const Profile = () => {
           )}
           {/* Left section – Profile Tips (caregiver only); hidden in admin view */}
           {!isAdminView && profile?.role === "caregiver" && (
-            <div className="lg:col-span-3 order-2 lg:order-1">
+            <div className="lg:col-span-3 order-1">
               <div className="bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm sticky top-6">
                 <h3 className="text-base font-bold text-gray-800 mb-3 flex items-center gap-2">
                   <span className="w-8 h-8 rounded-lg bg-green-100 text-green-700 flex items-center justify-center text-sm font-bold">
@@ -338,20 +428,20 @@ const Profile = () => {
             </div>
           )}
 
-          {/* Main profile form – center (caregiver), right (careseeker); same width in admin view */}
+          {/* Main profile form – center (caregiver & careseeker); same width in admin view */}
           <div
             className={
               profile?.role === "caregiver"
-                ? "lg:col-span-6 order-1 lg:order-2"
+                ? "lg:col-span-6 order-2 overflow-y-auto max-h-full pr-2 custom-scroll"
                 : profile?.role === "careseeker"
-                  ? "lg:col-span-9 order-1 lg:order-2"
+                  ? "lg:col-span-6 order-2 pr-2"
                   : ""
             }
           >
         <div className="bg-green-50 border border-gray-200 rounded-xl overflow-hidden shadow-md">
-          <div className="px-6 md:px-8 pt-12 pb-10">
+          <div className={`px-6 md:px-8 ${profile?.role === "careseeker" ? "pt-8 pb-6" : "pt-12 pb-10"}`}>
             {/* Profile heading: image + name + role */}
-            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 mb-6">
+            <div className={`flex flex-col sm:flex-row items-center sm:items-start gap-4 ${profile?.role === "careseeker" ? "mb-4" : "mb-6"}`}>
               <div className="relative shrink-0 -mt-4">
                 <img
                   src={
@@ -405,12 +495,12 @@ const Profile = () => {
                 {mode === "view" ? (
                   <>
                     {profile?.role === "caregiver" && (
-                      <Link
-                        to="/caregiver/upload-documents"
+                      <button
+                        onClick={handleUploadDocumentsClick}
                         className="px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg transition flex items-center gap-2 text-sm font-medium"
                       >
                         <Shield size={18} /> Upload Documents
-                      </Link>
+                      </button>
                     )}
                     <button
                       onClick={() => setMode("edit")}
@@ -421,13 +511,7 @@ const Profile = () => {
                   </>
                 ) : (
                   <>
-                    <button
-                      onClick={() => setMode("view")}
-                      className="px-4 py-2.5 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition text-sm"
-                      disabled={saving}
-                    >
-                      Cancel
-                    </button>
+                    {/* Cancel button removed */}
                     <button
                       onClick={saveProfile}
                       disabled={saving}
@@ -443,13 +527,33 @@ const Profile = () => {
               </div>
             )}
 
+            {/* Profile Validation Error Message for Document Upload */}
+            {profileValidationErrors.length > 0 && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
+                  <div>
+                    <h4 className="text-sm font-semibold text-red-800 mb-2">
+                      Please complete your profile before uploading documents
+                    </h4>
+                    <p className="text-sm text-red-700 mb-2">Missing required fields:</p>
+                    <ul className="text-sm text-red-600 list-disc list-inside space-y-1">
+                      {profileValidationErrors.map((error, index) => (
+                        <li key={index}>{error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Section 1: Personal Details (stacked first) */}
-            <div className="space-y-6 mb-10">
+            <div className={profile?.role === "careseeker" ? "space-y-4 mb-6" : "space-y-6 mb-10"}>
               <h3 className="text-lg font-bold text-gray-800 border-b border-gray-200 pb-2 flex items-center gap-2">
                 <User size={20} className="text-green-600" /> Personal
                 Information
               </h3>
-              <div className="space-y-4">
+              <div className={profile?.role === "careseeker" ? "space-y-3" : "space-y-4"}>
                 {/* Bio inside Personal Details (caregivers only) */}
                 {profile?.role === "caregiver" && (
                   <div>
@@ -457,7 +561,7 @@ const Profile = () => {
                       Bio
                     </label>
                     <p className="text-xs text-gray-500 mb-1">
-                      Short introduction or experience summary for care seekers
+                      Short introduction or experience summary
                     </p>
                     {mode === "edit" ? (
                       <textarea
@@ -479,7 +583,7 @@ const Profile = () => {
                 {profile?.role === "caregiver" && (
                   <div>
                     <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
-                      Gender <span className="text-gray-400 font-normal">(Optional)</span>
+                      Gender 
                     </label>
                     {mode === "edit" ? (
                       <select
@@ -517,13 +621,22 @@ const Profile = () => {
                     Phone Number
                   </label>
                   {mode === "edit" ? (
-                    <input
-                      name="phone"
-                      value={form.phone}
-                      onChange={handleCommonChange}
-                      className="w-full bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
-                      placeholder="Enter phone number"
-                    />
+                    <>
+                      <input
+                        name="phone"
+                        value={form.phone}
+                        onChange={handlePhoneChange}
+                        className={`w-full bg-green-50 border px-3 py-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none ${
+                          phoneError ? "border-red-500" : "border-gray-300"
+                        }`}
+                        placeholder="Enter phone number"
+                        maxLength={10}
+                        inputMode="numeric"
+                      />
+                      {phoneError && (
+                        <p className="text-red-500 text-xs mt-1">{phoneError}</p>
+                      )}
+                    </>
                   ) : (
                     <div className="flex items-center gap-2 text-gray-700 bg-green-50 px-3 py-2.5 rounded-lg border border-gray-300">
                       <Phone size={16} className="text-gray-400" />{" "}
@@ -620,6 +733,27 @@ const Profile = () => {
                       </div>
                     )}
                   </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
+                      Hourly Rate (Rs.)
+                    </label>
+                    {mode === "edit" ? (
+                      <input
+                        type="number"
+                        name="hourly_rate"
+                        value={caregiverForm.hourly_rate}
+                        onChange={handleCaregiverChange}
+                        min={0}
+                        step="0.01"
+                        className="w-full bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                        placeholder="e.g. 500"
+                      />
+                    ) : (
+                      <div className="bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg text-gray-700">
+                        {caregiverForm.hourly_rate ? `Rs. ${caregiverForm.hourly_rate}` : "Not set"}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -691,20 +825,30 @@ const Profile = () => {
                 <p className="text-xs text-gray-500 mb-4">
                   Elderly care services you can offer in your profile.
                 </p>
-                <ul className="space-y-0 divide-y divide-gray-100">
-                  {SERVICES_GUIDE.map((item) => (
-                    <li key={item.name} className="py-3 first:pt-0">
-                      <span className="text-sm font-semibold text-gray-800 block">
-                        {item.name}
-                      </span>
-                      <span className="text-xs text-gray-600 block mt-0.5">
-                        {item.description}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                    <ul className="space-y-0 divide-y divide-gray-100">
+                      {SERVICES_GUIDE.map((item) => {
+                        const Icon = SERVICE_ICONS[item.name] || CheckCircle;
+                        return (
+                          <li key={item.name} className="py-3 first:pt-0">
+                            <div className="flex items-center gap-2">
+                              <Icon size={18} className="text-green-600" />
+                              <span className="text-base font-semibold text-gray-800 block">
+                                {item.name}
+                              </span>
+                            </div>
+                            <span className="text-xs text-gray-600 block mt-0.5">
+                              {item.description}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
               </div>
             </div>
+          )}
+          {/* Right placeholder (careseeker) – preserves 3-column grid layout */}
+          {profile?.role === "careseeker" && (
+            <div className="lg:col-span-3 order-3 hidden lg:block" />
           )}
         </div>
       </div>

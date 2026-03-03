@@ -17,8 +17,10 @@ interface Caregiver {
   profile_image?: string | null;
   bio?: string | null;
   gender?: string | null;
+  hourly_rate?: number | null;
   verification_status?: string;
   address?: string | null;
+  has_active_booking?: boolean;
 }
 
 interface BookingFormData {
@@ -30,6 +32,7 @@ interface BookingFormData {
   duration_hours: number;
   emergency_contact_name: string;
   emergency_contact_phone: string;
+  service_address: string;
   additional_info: string;
 }
 
@@ -86,11 +89,14 @@ const FindCaregiver = () => {
     duration_hours: 2,
     emergency_contact_name: "",
     emergency_contact_phone: "",
+    service_address: "",
     additional_info: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [dateError, setDateError] = useState("");
+  const [timeError, setTimeError] = useState("");
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
@@ -141,9 +147,12 @@ const FindCaregiver = () => {
       duration_hours: 2,
       emergency_contact_name: "",
       emergency_contact_phone: "",
+      service_address: "",
       additional_info: "",
     });
     setError("");
+    setDateError("");
+    setTimeError("");
     setMessage("");
     setShowBookingForm(true);
   };
@@ -160,6 +169,7 @@ const FindCaregiver = () => {
     setProfileModalLoading(true);
     try {
       const res = await api.get(`admin/profile/${c.user_id}/`);
+      console.log("[FindCaregiver] Profile modal data:", res.data); // TEMP: verify caregiver fields
       setProfileModalData(res.data);
     } catch {
       setProfileModalData({
@@ -174,6 +184,7 @@ const FindCaregiver = () => {
           available_hours: c.available_hours,
           bio: c.bio || undefined,
           gender: c.gender || undefined,
+          hourly_rate: c.hourly_rate ?? undefined,
         },
         profile_image: c.profile_image,
       });
@@ -211,8 +222,15 @@ const FindCaregiver = () => {
       setError("Please select a start time");
       return;
     }
-    if (!bookingForm.emergency_contact_phone.trim()) {
-      setError("Please enter emergency contact phone number");
+
+    if (!validateDateTime()) {
+      return;
+    }
+
+    // Emergency phone validation: exactly 10 digits, numeric only
+    const phone = bookingForm.emergency_contact_phone.trim();
+    if (!/^[0-9]{10}$/.test(phone)) {
+      setError("Phone number must be exactly 10 digits.");
       return;
     }
     
@@ -229,6 +247,7 @@ const FindCaregiver = () => {
         start_time: bookingForm.start_time,
         duration_hours: bookingForm.duration_hours,
         emergency_contact_phone: bookingForm.emergency_contact_phone.trim(),
+        service_address: bookingForm.service_address.trim() || undefined,
         additional_info: bookingForm.additional_info.trim() || undefined,
       });
       setMessage("Booking request sent successfully");
@@ -236,8 +255,18 @@ const FindCaregiver = () => {
         closeBookingForm();
       }, 1500);
     } catch (err: unknown) {
-      const ax = err as { response?: { data?: { error?: string; detail?: string } } };
-      setError(ax.response?.data?.error || ax.response?.data?.detail || "Booking failed");
+      const ax = err as { response?: { data?: { error?: string; detail?: string; date?: string[]; start_time?: string[] } } };
+      const errorMsg = ax.response?.data?.error || ax.response?.data?.detail || "Booking failed";
+      
+      if (errorMsg.includes("already have an active booking")) {
+        setError("You have already requested this caregiver. Please wait for response.");
+      } else if (ax.response?.data?.date) {
+        setDateError(ax.response.data.date[0] || "Invalid date");
+      } else if (ax.response?.data?.start_time) {
+        setTimeError(ax.response.data.start_time[0] || "Invalid time");
+      } else {
+        setError(errorMsg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -246,6 +275,49 @@ const FindCaregiver = () => {
   const getMinDate = () => {
     const d = new Date();
     return d.toISOString().split("T")[0];
+  };
+
+  const getMinTime = () => {
+    if (bookingForm.date === getMinDate()) {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, "0");
+      const minutes = String(now.getMinutes()).padStart(2, "0");
+      return `${hours}:${minutes}`;
+    }
+    return "";
+  };
+
+  const validateDateTime = () => {
+    setDateError("");
+    setTimeError("");
+
+    if (!bookingForm.date) {
+      return true;
+    }
+
+    const selectedDate = new Date(bookingForm.date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    selectedDate.setHours(0, 0, 0, 0);
+
+    if (selectedDate < today) {
+      setDateError("You cannot select a past date or time.");
+      return false;
+    }
+
+    if (selectedDate.getTime() === today.getTime() && bookingForm.start_time) {
+      const now = new Date();
+      const [hours, minutes] = bookingForm.start_time.split(":").map(Number);
+      const selectedTime = new Date();
+      selectedTime.setHours(hours, minutes, 0, 0);
+
+      if (selectedTime < now) {
+        setTimeError("You cannot select a past date or time.");
+        return false;
+      }
+    }
+
+    return true;
   };
 
   const openFilterModal = () => {
@@ -357,97 +429,106 @@ const FindCaregiver = () => {
           </div>
         ) : (
           <ul className="space-y-5">
-            {filtered.map((c) => (
-              <li
-                key={c.user_id}
-                className="bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm hover:border-green-500 transition-colors cursor-pointer"
-                onClick={() => openProfileModal(c)}
-              >
-                <div className="flex gap-4 items-center">
-                  {/* Profile photo with verified tick */}
-                  <VerifiedAvatar
-                    src={c.profile_image && !imageErrors[c.user_id] ? c.profile_image : null}
-                    username={c.username}
-                    isVerified={c.verification_status === "approved"}
-                    size="md"
-                    onClick={() => openProfileModal(c)}
-                    onImageError={() => setImageErrors((prev) => ({ ...prev, [c.user_id]: true }))}
-                  />
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <h2 className="font-semibold text-gray-800">{c.username}</h2>
-                    </div>
-
-                    {c.bio && (
-                      <p
-                        className="text-sm font-semibold text-gray-800 mb-1.5 overflow-hidden"
-                        style={{
-                          display: "-webkit-box",
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: "vertical" as const,
-                        }}
-                      >
-                        {c.bio}
-                      </p>
-                    )}
-
-                    {c.service_types && c.service_types.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mb-1.5">
-                        {c.service_types.map((service) => (
-                          <span
-                            key={service}
-                            className="px-2 py-0.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md bg-green-200"
-                          >
-                            {service}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {c.address && (
-                      <div className="flex items-center gap-1.5">
-                        <MapPin size={14} className="text-gray-500 shrink-0" />
-                        <span className="text-xs text-gray-500">{c.address}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="shrink-0 flex items-center gap-2">
-                    {c.has_active_booking ? (
-                      <div className="px-4 py-2 bg-gray-300 text-gray-600 text-sm font-medium rounded-lg cursor-not-allowed">
-                        Request Sent
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openBookingForm(c);
-                        }}
-                        className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-                      >
-                        Request Care
-                      </button>
-                    )}
-                    <div
-                      className="relative"
-                      title="Chat coming soon"
-                    >
-                      <button
-                        type="button"
-                        disabled
-                        className="p-2 text-white-500 rounded-lg cursor-not-allowed opacity-50"
-                        aria-label="Chat coming soon"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <MessageCircle size={20} className="stroke-current" />
-                      </button>
-                    </div>
-                  </div>
+            {filtered.map((c) => {
+              const button = c.has_active_booking ? (
+                <div className="px-4 py-2 bg-gray-300 text-gray-600 text-sm font-medium rounded-lg cursor-not-allowed">
+                  Request Sent
                 </div>
-              </li>
-            ))}
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openBookingForm(c);
+                  }}
+                  className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  Request Care
+                </button>
+              );
+              return (
+                <li
+                  key={c.user_id}
+                  className="bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm hover:border-green-500 transition-colors cursor-pointer"
+                  onClick={() => openProfileModal(c)}
+                >
+                  <div className="flex gap-4 items-center">
+                    {/* Profile photo with verified tick */}
+                    <VerifiedAvatar
+                      src={c.profile_image && !imageErrors[c.user_id] ? c.profile_image : null}
+                      username={c.username}
+                      isVerified={c.verification_status === "approved"}
+                      size="md"
+                      onClick={() => openProfileModal(c)}
+                      onImageError={() => setImageErrors((prev) => ({ ...prev, [c.user_id]: true }))}
+                    />
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <h2 className="font-semibold text-gray-800">{c.username}</h2>
+                      </div>
+
+                      {c.bio && (
+                        <p
+                          className="text-sm font-semibold text-gray-800 mb-1.5 overflow-hidden"
+                          style={{
+                            display: "-webkit-box",
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: "vertical" as const,
+                          }}
+                        >
+                          {c.bio}
+                        </p>
+                      )}
+
+                      {c.service_types && c.service_types.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-1.5">
+                          {c.service_types.map((service) => (
+                            <span
+                              key={service}
+                              className="px-2 py-0.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md bg-green-200"
+                            >
+                              {service}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {c.address && (
+                        <div className="flex items-center gap-1.5">
+                          <MapPin size={14} className="text-gray-500 shrink-0" />
+                          <span className="text-xs text-gray-500">{c.address}</span>
+                        </div>
+                      )}
+
+                      {/* Hourly Rate */}
+                      {c.hourly_rate && (
+                        <div className="mt-2">
+                          <span className="inline-flex items-center px-2.5 py-1 text-sm font-semibold text-green-700 bg-green-100 border border-green-200 rounded-lg">
+                            Rs. {c.hourly_rate} / hour
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-2">
+                      {button}
+                      <div className="relative" title="Chat coming soon">
+                        <button
+                          type="button"
+                          disabled
+                          className="p-2 text-white-500 rounded-lg cursor-not-allowed opacity-50"
+                          aria-label="Chat coming soon"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MessageCircle size={20} className="stroke-current" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
           </div>
@@ -599,12 +680,12 @@ const FindCaregiver = () => {
       {/* Booking form modal */}
       {showBookingForm && selectedCaregiver && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white p-6 rounded-xl w-full max-w-2xl mx-4 my-8 shadow-lg">
+          <div className="bg-green-50 p-6 rounded-xl w-full max-w-3xl mx-4 my-8 shadow-lg">
             <h3 className="text-lg font-semibold text-gray-800 mb-4">
               Request Care from {selectedCaregiver.username}
             </h3>
 
-            <div className="space-y-4 mb-4 max-h-[70vh] overflow-y-auto pr-2">
+            <div className="space-y-4 mb-4 max-h-[70vh] overflow-y-auto px-2">
               {/* Care Services Needed */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -615,7 +696,7 @@ const FindCaregiver = () => {
                     selectedCaregiver.service_types.map((service) => (
                       <label
                         key={service}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer hover:bg-green-50 transition-colors"
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-green-50 cursor-pointer hover:bg-green-100 transition-colors"
                       >
                         <input
                           type="checkbox"
@@ -657,7 +738,7 @@ const FindCaregiver = () => {
                     onChange={(e) =>
                       setBookingForm((p) => ({ ...p, person_name: e.target.value }))
                     }
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full box-border bg-green-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500"
                   >
                     {RELATIONSHIP_OPTIONS.map((opt) => (
                       <option key={opt.value} value={opt.value}>
@@ -679,7 +760,7 @@ const FindCaregiver = () => {
                     placeholder="Enter age"
                     min="1"
                     max="150"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full box-border bg-green-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500"
                   />
                 </div>
               </div>
@@ -698,11 +779,23 @@ const FindCaregiver = () => {
                       type="date"
                       value={bookingForm.date}
                       min={getMinDate()}
-                      onChange={(e) =>
-                        setBookingForm((p) => ({ ...p, date: e.target.value }))
-                      }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      onChange={(e) => {
+                        setBookingForm((p) => ({ ...p, date: e.target.value }));
+                        setDateError("");
+                        if (e.target.value === getMinDate()) {
+                          const minTime = getMinTime();
+                          if (bookingForm.start_time && bookingForm.start_time < minTime) {
+                            setBookingForm((p) => ({ ...p, start_time: "" }));
+                          }
+                        }
+                      }}
+                      className={`w-full box-border bg-green-50 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500 ${
+                        dateError ? "border-red-500" : "border-gray-300"
+                      }`}
                     />
+                    {dateError && (
+                      <p className="text-xs text-red-600 mt-1">{dateError}</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs text-gray-600 mb-1">
@@ -711,11 +804,18 @@ const FindCaregiver = () => {
                     <input
                       type="time"
                       value={bookingForm.start_time}
-                      onChange={(e) =>
-                        setBookingForm((p) => ({ ...p, start_time: e.target.value }))
-                      }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      min={getMinTime()}
+                      onChange={(e) => {
+                        setBookingForm((p) => ({ ...p, start_time: e.target.value }));
+                        setTimeError("");
+                      }}
+                      className={`w-full box-border bg-green-50 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500 ${
+                        timeError ? "border-red-500" : "border-gray-300"
+                      }`}
                     />
+                    {timeError && (
+                      <p className="text-xs text-red-600 mt-1">{timeError}</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs text-gray-600 mb-1">
@@ -729,7 +829,7 @@ const FindCaregiver = () => {
                           duration_hours: parseInt(e.target.value, 10),
                         }))
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      className="w-full box-border bg-green-50 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500"
                     >
                       {[1, 2, 3, 4, 5, 6, 7, 8].map((h) => (
                         <option key={h} value={h}>
@@ -741,20 +841,39 @@ const FindCaregiver = () => {
                 </div>
               </div>
 
-              {/* Emergency Contact Details */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Emergency Phone Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  value={bookingForm.emergency_contact_phone}
-                  onChange={(e) =>
-                    setBookingForm((p) => ({ ...p, emergency_contact_phone: e.target.value }))
-                  }
-                  placeholder="Enter phone number"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                />
+              {/* Emergency Contact Details & Service Address */}
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Service Address <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={bookingForm.service_address}
+                    onChange={(e) =>
+                      setBookingForm((p) => ({ ...p, service_address: e.target.value }))
+                    }
+                    rows={3}
+                    placeholder="Enter full service address"
+                    className="w-full box-border bg-green-50 border border-gray-300 rounded-lg px-3 py-3 h-[48px] text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Emergency Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={bookingForm.emergency_contact_phone}
+                    onChange={(e) =>
+                      setBookingForm((p) => ({ ...p, emergency_contact_phone: e.target.value }))
+                    }
+                    placeholder="Enter phone number"
+                    className="w-full box-border bg-green-50 border border-gray-300 rounded-lg px-3 py-3 h-[48px] text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500"
+                  />
+                </div>
+                
               </div>
 
               {/* Additional Care Information */}
@@ -769,7 +888,7 @@ const FindCaregiver = () => {
                   }
                   rows={3}
                   placeholder="Any special requirements, medical conditions, or additional information the caregiver should know"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  className="w-full box-border bg-green-50 border border-gray-300 rounded-lg px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500"
                 />
               </div>
             </div>
