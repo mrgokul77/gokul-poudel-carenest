@@ -10,15 +10,25 @@ import CareseekerDashboard from "./pages/CareseekerDashboard";
 import CaregiverDashboard from "./pages/CaregiverDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import MessagesPage from "./pages/MessagesPage";
+import ChatPage from "./pages/ChatPage";
 import CaregiverUpload from "./pages/CaregiverUpload";
 import AdminVerify from "./pages/AdminVerify";
+import AdminUsersPage from "./pages/AdminUsersPage";
+import AdminPlaceholderPage from "./pages/AdminPlaceholderPage";
+import AdminSendAnnouncementPage from "./pages/AdminSendAnnouncementPage";
 import CaregiverBookingRequests from "./pages/CaregiverBookingRequests";
+import EarningsHistoryPage from "./pages/EarningsHistoryPage";
+import ReviewsReceivedPage from "./pages/ReviewsReceivedPage";
 import CareseekerBookings from "./pages/CareseekerBookings";
 import PaymentVerify from "./pages/PaymentVerify";
+import PaymentHistoryPage from "./pages/PaymentHistoryPage";
+
 
 import Profile from "./pages/Profile";
 import ProtectedRoute from "./utils/ProtectedRoute";
 import FindCaregiver from "./pages/FindCaregiver";
+import NotificationsPage from "./pages/NotificationsPage";
+import AnnouncementsPage from "./pages/AnnouncementsPage";
 
 function App() {
   return (
@@ -75,6 +85,14 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/caregiver/:userId"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker", "caregiver"]}>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Caregiver verification flow */}
         <Route
@@ -86,10 +104,42 @@ function App() {
           }
         />
         <Route
+          path="/admin/users"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminUsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/verify-caregivers"
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
               <AdminVerify />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/complaints"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminPlaceholderPage title="Complaints" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/announcements"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminSendAnnouncementPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/reports"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminPlaceholderPage title="Reports" />
             </ProtectedRoute>
           }
         />
@@ -111,11 +161,28 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/caregiver/booking-requests"
           element={
             <ProtectedRoute allowedRoles={["caregiver"]}>
               <CaregiverBookingRequests />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/caregiver/earnings-history"
+          element={
+            <ProtectedRoute allowedRoles={["caregiver"]}>
+              <EarningsHistoryPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/caregiver/reviews-received"
+          element={
+            <ProtectedRoute allowedRoles={["caregiver"]}>
+              <ReviewsReceivedPage />
             </ProtectedRoute>
           }
         />
@@ -130,12 +197,46 @@ function App() {
           }
         />
 
-        {/* Messages page - accessible by both careseeker and caregiver */}
+        {/* Payment History */}
+        <Route
+          path="/payments"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker"]}>
+              <PaymentHistoryPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Messages - list and single conversation */}
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker", "caregiver"]}>
+              <NotificationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/announcements"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker", "caregiver"]}>
+              <AnnouncementsPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/messages"
           element={
             <ProtectedRoute allowedRoles={["careseeker", "caregiver"]}>
               <MessagesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/messages/:conversationId"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker", "caregiver"]}>
+              <ChatPage />
             </ProtectedRoute>
           }
         />

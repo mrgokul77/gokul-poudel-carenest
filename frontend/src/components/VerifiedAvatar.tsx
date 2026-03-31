@@ -4,7 +4,7 @@ interface VerifiedAvatarProps {
   src?: string | null;
   username: string;
   isVerified?: boolean;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "s" | "sm" | "md" | "lg";
   onClick?: () => void;
   onImageError?: () => void;
   className?: string;
@@ -23,6 +23,18 @@ const VerifiedAvatar = ({
   const getInitial = (name: string) => name.charAt(0).toUpperCase();
 
   const sizeClasses = {
+    xs: {
+      container: "w-11 h-11",
+      text: "text-sm",
+      tick: "w-3 h-3",
+      tickIconSize: 10,
+    },
+    s: {
+      container: "w-12 h-12",
+      text: "text-base",
+      tick: "w-4 h-4",
+      tickIconSize: 10,
+    },
     sm: {
       container: "w-16 h-16",
       text: "text-xl",

@@ -1,0 +1,91 @@
+from rest_framework import serializers
+
+from bookings.models import Booking
+from .models import Review
+
+
+class ReviewSerializer(serializers.ModelSerializer):
+    """Create/read reviews with strict 1–5 rating."""
+
+    booking_id = serializers.IntegerField(write_only=True)
+    careseeker_name = serializers.CharField(source="careseeker.username", read_only=True)
+    careseeker_profile_image = serializers.SerializerMethodField()
+    service_types = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Review
+        fields = [
+            "id",
+            "booking_id",
+            "caregiver",
+            "careseeker",
+            "careseeker_name",
+            "careseeker_profile_image",
+            "service_types",
+            "rating",
+            "comment",
+            "created_at",
+        ]
+        read_only_fields = ["id", "caregiver", "careseeker", "created_at"]
+
+    def get_careseeker_profile_image(self, obj):
+        try:
+            profile = obj.careseeker.profile
+            if profile and profile.profile_image:
+                request = self.context.get("request")
+                if request:
+                    return request.build_absolute_uri(profile.profile_image.url)
+                return profile.profile_image.url
+        except Exception:
+            pass
+        return None
+
+    def get_service_types(self, obj):
+        try:
+            return obj.booking.service_types or []
+        except Exception:
+            return []
+
+    def validate_rating(self, value):
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError("Rating must be an integer between 1 and 5.")
+        return value
+
+    def validate_booking_id(self, value):
+        try:
+            booking = Booking.objects.get(id=value)
+        except Booking.DoesNotExist:
+            raise serializers.ValidationError("Booking not found.")
+        self.context["booking"] = booking
+        return value
+
+    def create(self, validated_data):
+        booking = self.context["booking"]
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        # Safeguard – view should already enforce these conditions
+        if not user or not user.is_authenticated or user.role != "careseeker":
+            raise serializers.ValidationError("Only careseekers can create reviews.")
+
+        if booking.family != user:
+            raise serializers.ValidationError("You can only review your own bookings.")
+
+        if booking.status != "completed":
+            raise serializers.ValidationError("Only completed bookings can be reviewed.")
+
+        if hasattr(booking, "review"):
+            raise serializers.ValidationError("Review already submitted for this booking.")
+
+        rating = validated_data["rating"]
+        comment = validated_data.get("comment", "").strip()
+
+        review = Review.objects.create(
+            booking=booking,
+            caregiver=booking.caregiver,
+            careseeker=user,
+            rating=rating,
+            comment=comment,
+        )
+        return review
+

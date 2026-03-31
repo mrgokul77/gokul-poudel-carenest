@@ -1,12 +1,39 @@
 import requests
 from django.conf import settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from bookings.models import Booking
 from .models import Payment
-from .serializers import PaymentSerializer, KhaltiInitiateSerializer, KhaltiVerifySerializer
+from .serializers import (
+    PaymentSerializer,
+    PaymentListSerializer,
+    KhaltiInitiateSerializer,
+    KhaltiVerifySerializer,
+)
+
+
+class PaymentListView(APIView):
+    """GET /api/payments/ - List payments for the authenticated user"""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.role == "careseeker":
+            queryset = Payment.objects.filter(booking__family=user)
+        elif user.role == "caregiver":
+            queryset = Payment.objects.filter(booking__caregiver=user)
+        else:
+            queryset = Payment.objects.none()
+
+        payments = queryset.select_related(
+            "booking", "booking__caregiver"
+        ).order_by("-created_at")
+
+        serializer = PaymentListSerializer(payments, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class InitiateKhaltiPaymentView(APIView):
@@ -51,11 +78,10 @@ class InitiateKhaltiPaymentView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Booking must be accepted to allow payment
-        if booking.status != "accepted":
-            print(f"DEBUG - Booking status check failed: {booking.status} != accepted")
+        # Payment only allowed when service is completed (pay-after-service)
+        if booking.status != "completed":
             return Response(
-                {"error": f"Booking must be accepted before payment. Current status: {booking.status}"},
+                {"error": f"Payment is only available after the service is completed. Current status: {booking.status}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -193,6 +219,9 @@ class InitiateKhaltiPaymentView(APIView):
             )
 
 
+
+
+
 class VerifyKhaltiPaymentView(APIView):
     """Verify Khalti payment after redirect"""
     permission_classes = [IsAuthenticated]
@@ -238,14 +267,18 @@ class VerifyKhaltiPaymentView(APIView):
                 khalti_status = response_data.get("status")
                 
                 if khalti_status == "Completed":
+                    booking = payment.booking
                     payment.status = "completed"
+                    payment.payment_status = "Paid"
                     payment.transaction_id = response_data.get("transaction_id")
+                    payment.payment_method = "Khalti"
+                    payment.payment_date = timezone.now()
+                    payment.careseeker = booking.family
+                    payment.caregiver = booking.caregiver
                     payment.save()
 
-                    # Update booking status to paid
-                    booking = payment.booking
-                    booking.status = "paid"
-                    booking.save()
+                    # Booking stays "accepted" - payment is tracked in Payment model
+                    print(f"Payment verified for booking: {booking.id}, payment id: {payment.id}")
 
                     return Response({
                         "message": "Payment verified successfully",

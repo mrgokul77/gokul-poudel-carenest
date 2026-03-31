@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
+
+const API_BASE = "http://127.0.0.1:8000";
+
+/** Resolve profile_image to full URL (backend may return relative path) */
+const resolveProfileImageUrl = (url: string | null | undefined): string | null => {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/")) return `${API_BASE}${url}`;
+  return url;
+};
 import Navbar from "../components/Navbar";
 import {
   User,
@@ -164,8 +174,8 @@ const Profile = () => {
         profile_image: null,
       });
 
-      // backend image URL (persists on refresh/login)
-      setImagePreview(data.profile_image || null);
+      // Use uploaded profile image from backend (persists on refresh/login)
+      setImagePreview(resolveProfileImageUrl(data.profile_image) || null);
 
       if (data.role === "caregiver" && data.caregiver_details) {
         setCaregiverForm({
@@ -446,7 +456,7 @@ const Profile = () => {
                 <img
                   src={
                     imagePreview ||
-                    `https://ui-avatars.com/api/?name=${profile?.username}&background=random`
+                    `https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.username || "")}&background=random`
                   }
                   className="w-24 h-24 rounded-full border-4 border-white shadow-md object-cover bg-white"
                   alt="Profile"
@@ -480,9 +490,14 @@ const Profile = () => {
                   {profile?.role === "caregiver" && (
                     <div className="flex items-center gap-1 text-sm text-gray-600">
                       <Star size={14} className="text-yellow-500" />
-                      <span className="font-semibold">
-                        {profile?.average_rating ?? "0"}
-                      </span>
+                      {/* Show average rating and review count, or 'New (0 reviews)' if none */}
+                      {typeof profile?.review_count === "number" && profile.review_count > 0 && typeof profile?.average_rating === "number" ? (
+                        <span className="font-semibold">
+                          {profile.average_rating.toFixed(1)} ({profile.review_count} reviews)
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">New (0 reviews)</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -846,10 +861,8 @@ const Profile = () => {
               </div>
             </div>
           )}
-          {/* Right placeholder (careseeker) – preserves 3-column grid layout */}
-          {profile?.role === "careseeker" && (
-            <div className="lg:col-span-3 order-3 hidden lg:block" />
-          )}
+          {/* Right section – Quick Actions for careseeker */}
+
         </div>
       </div>
     </div>

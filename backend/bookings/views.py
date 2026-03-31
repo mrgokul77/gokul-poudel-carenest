@@ -3,15 +3,31 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from .permissions import IsCareSeeker
-
-    # Removed BookingCancelView
 from django.utils import timezone
+from django.conf import settings
+from datetime import timedelta
 from accounts.models import User, CaregiverProfile
 from verifications.models import CaregiverVerification
 from .models import Booking
 from .serializers import CaregiverListSerializer, BookingCreateSerializer, BookingSerializer
 from .permissions import IsCareSeeker
 from verifications.permissions import IsCaregiver
+
+
+PENDING_RESPONSE_WINDOW_MINUTES = 90
+
+
+def expire_pending_bookings(queryset):
+    """
+    Check pending bookings and mark as expired if caregiver did not respond within 90 minutes.
+    Modifies in place and saves.
+    """
+    now = timezone.now()
+    cutoff = now - timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES)
+    for booking in queryset.filter(status="pending"):
+        if booking.created_at < cutoff:
+            booking.status = "expired"
+            booking.save()
 
 
 def get_verified_caregiver_ids():
@@ -28,18 +44,17 @@ def get_active_bookings_for_caregiver(caregiver_id):
     Returns active bookings for a caregiver that are still ongoing or in the future.
     
     A booking is considered "active" and blocks availability when:
-    1. Its status is 'accepted' or 'paid' (confirmed bookings)
+    1. Its status is 'accepted' or 'completion_requested'
     2. Its end time is still in the future (not yet completed)
     
-    Past bookings (even if status is 'accepted'/'paid') are automatically 
-    considered completed and don't block availability.
+    Past bookings are automatically considered completed and don't block availability.
     """
-    now = timezone.now()
+    now = timezone.localtime()
     
-    # Get all accepted/paid bookings for this caregiver
+    # Get all accepted/completion_requested bookings for this caregiver
     bookings = Booking.objects.filter(
         caregiver_id=caregiver_id,
-        status__in=["accepted", "paid"]
+        status__in=["accepted", "completion_requested"]
     )
     
     # Filter to only those that are still ongoing or in the future
@@ -145,11 +160,11 @@ class BookingCreateView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Prevent duplicate active bookings with same caregiver
+        # Prevent duplicate active bookings with same caregiver (expired excluded)
         existing_booking = Booking.objects.filter(
             family=request.user,
             caregiver=caregiver,
-            status__in=["pending", "accepted"]
+            status__in=["pending", "accepted", "completion_requested"]
         ).first()
         
         if existing_booking:
@@ -159,6 +174,8 @@ class BookingCreateView(APIView):
             )
 
         serializer = BookingCreateSerializer(data=request.data)
+        if settings.DEBUG:
+            print("REQUEST DATA (booking create):", dict(request.data))
         if serializer.is_valid():
             # Extract booking details for overlap check
             date = serializer.validated_data.get("date")
@@ -210,7 +227,66 @@ class BookingListView(APIView):
                 {"error": "Access denied"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # Auto-expire pending bookings that exceeded 90-minute response window
+        expire_pending_bookings(bookings)
         serializer = BookingSerializer(bookings, many=True, context={"request": request})
+        return Response(serializer.data)
+
+
+class BookingMarkServiceCompleteView(APIView):
+    """Caregiver marks an accepted booking as completion_requested, when current time >= start_time."""
+    permission_classes = [IsAuthenticated, IsCaregiver]
+
+    def post(self, request, pk):
+        try:
+            booking = Booking.objects.get(pk=pk, caregiver=request.user)
+        except Booking.DoesNotExist:
+            return Response(
+                {"error": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if booking.status != "accepted":
+            return Response(
+                {"error": f"Only accepted bookings can be marked as service complete (current status: {booking.status})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.localtime()
+        if now < booking.start_datetime:
+            return Response(
+                {"error": "You can mark service complete only after the service start time."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking.status = "completion_requested"
+        booking.save()
+        serializer = BookingSerializer(booking, context={"request": request})
+        return Response(serializer.data)
+
+
+class BookingConfirmCompletionView(APIView):
+    """Careseeker confirms completion when status is completion_requested."""
+    permission_classes = [IsAuthenticated, IsCareSeeker]
+
+    def post(self, request, pk):
+        try:
+            booking = Booking.objects.get(pk=pk, family=request.user)
+        except Booking.DoesNotExist:
+            return Response(
+                {"error": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if booking.status != "completion_requested":
+            return Response(
+                {"error": f"Only completion-requested bookings can be confirmed (current status: {booking.status})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking.status = "completed"
+        booking.save()
+        serializer = BookingSerializer(booking, context={"request": request})
         return Response(serializer.data)
 
 
@@ -227,7 +303,16 @@ class BookingRespondView(APIView):
                 {"error": "Booking not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        if booking.status != "pending":
+        # Check if pending booking has expired (90-minute window)
+        if booking.status == "pending":
+            if timezone.now() - booking.created_at > timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES):
+                booking.status = "expired"
+                booking.save()
+                return Response(
+                    {"error": "This booking request has expired."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif booking.status != "pending":
             return Response(
                 {"error": f"Booking is already {booking.status}"},
                 status=status.HTTP_400_BAD_REQUEST,

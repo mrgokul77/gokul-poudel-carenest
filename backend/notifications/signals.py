@@ -1,0 +1,234 @@
+"""
+Django signals to auto-create notifications on booking, payment, and message events.
+"""
+from django.db.models.signals import pre_save, post_save
+from django.dispatch import receiver
+from django.utils import timezone
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+
+from .models import Notification
+from bookings.models import Booking
+from payments.models import Payment
+
+
+def _broadcast_notification_to_user(user_id, notification_data):
+    """Send notification payload to user's notification WebSocket channel."""
+    channel_layer = get_channel_layer()
+    if channel_layer:
+        async_to_sync(channel_layer.group_send)(
+            f"notifications_user_{user_id}",
+            {"type": "notification_new", "notification": notification_data},
+        )
+
+
+@receiver(pre_save, sender=Booking)
+def _store_previous_booking_status(instance, **kwargs):
+    """Store previous status before save for delta detection."""
+    if instance.pk:
+        try:
+            old = Booking.objects.get(pk=instance.pk)
+            instance._previous_status = old.status
+        except Booking.DoesNotExist:
+            instance._previous_status = None
+    else:
+        instance._previous_status = None
+
+
+def _create_and_broadcast(user, ntype, title, message, related_id):
+    """Create notification and broadcast via WebSocket."""
+    n = Notification.objects.create(
+        user=user,
+        type=ntype,
+        title=title,
+        message=message,
+        related_id=related_id,
+    )
+    from .serializers import NotificationSerializer
+    _broadcast_notification_to_user(user.id, NotificationSerializer(n).data)
+
+
+@receiver(post_save, sender=Booking)
+def on_booking_change(instance, created, **kwargs):
+    """Create notifications when booking status changes."""
+    if created:
+        # New booking request -> notify caregiver
+        _create_and_broadcast(
+            instance.caregiver,
+            "booking",
+            "New booking request",
+            f"{instance.family.username} sent you a booking request.",
+            instance.id,
+        )
+        return
+
+    old_status = getattr(instance, "_previous_status", None)
+    if old_status == instance.status:
+        return
+
+    if instance.status == "accepted":
+        _create_and_broadcast(
+            instance.family,
+            "booking",
+            "Booking accepted",
+            f"Caregiver {instance.caregiver.username} accepted your booking.",
+            instance.id,
+        )
+    elif instance.status == "rejected":
+        _create_and_broadcast(
+            instance.family,
+            "booking",
+            "Booking declined",
+            f"Caregiver {instance.caregiver.username} declined your booking request.",
+            instance.id,
+        )
+    elif instance.status == "completion_requested":
+        _create_and_broadcast(
+            instance.family,
+            "booking",
+            "Service completion requested",
+            f"Caregiver {instance.caregiver.username} has requested completion confirmation.",
+            instance.id,
+        )
+    elif instance.status == "completed":
+        _create_and_broadcast(
+            instance.caregiver,
+            "booking",
+            "Booking completed",
+            f"Booking with {instance.family.username} has been marked complete.",
+            instance.id,
+        )
+    elif instance.status == "expired":
+        _create_and_broadcast(
+            instance.family,
+            "booking",
+            "Booking expired",
+            "Your booking request has expired.",
+            instance.id,
+        )
+        _create_and_broadcast(
+            instance.caregiver,
+            "booking",
+            "Booking expired",
+            "A booking request has expired.",
+            instance.id,
+        )
+
+
+def _display_username(user):
+    """Short label for notifications (User has no first/last name)."""
+    if user is None:
+        return None
+    return user.username
+
+
+def _caregiver_display_name(booking, payment):
+    u = booking.caregiver if booking else None
+    if u is None and payment is not None:
+        u = payment.caregiver
+    return _display_username(u)
+
+
+def _family_display_name(booking, payment):
+    u = booking.family if booking else None
+    if u is None and payment is not None:
+        u = payment.careseeker
+    return _display_username(u)
+
+
+@receiver(post_save, sender=Payment)
+def on_payment_change(instance, created, update_fields, **kwargs):
+    """Create notifications when payment status changes to completed/failed."""
+    booking = getattr(instance, "booking", None)
+    caregiver_name = _caregiver_display_name(booking, instance)
+    family_name = _family_display_name(booking, instance)
+    amount_str = str(instance.amount)
+
+    if instance.status == "completed":
+        if booking and booking.family:
+            payee = caregiver_name or "your caregiver"
+            _create_and_broadcast(
+                booking.family,
+                "payment",
+                f"Paid {payee}",
+                (
+                    f"You paid Rs.{amount_str} to {payee} for your booking. "
+                    f"They have received your payment."
+                ),
+                instance.id,
+            )
+        if booking and booking.caregiver:
+            payer = family_name or "the care seeker"
+            _create_and_broadcast(
+                booking.caregiver,
+                "payment",
+                f"Received from {payer}",
+                (
+                    f"{payer} paid Rs.{amount_str} for your completed service. "
+                    f"The amount has been credited to you."
+                ),
+                instance.id,
+            )
+    elif instance.status == "failed":
+        if booking and booking.family:
+            payee = caregiver_name or "your caregiver"
+            _create_and_broadcast(
+                booking.family,
+                "payment",
+                "Payment failed",
+                (
+                    f"Your payment to {payee} could not be processed. "
+                    f"Please try again when you are ready."
+                ),
+                instance.id,
+            )
+
+
+def create_message_notification(sender, recipient, conversation_id, preview_text):
+    """
+    Create or update notification when a new chat message is received.
+    Groups message notifications by conversation - only one per sender.
+    Updates existing unread notification with latest preview and message count.
+    """
+    from .serializers import NotificationSerializer
+
+    sender_name = sender.username
+    msg = preview_text[:200] + ("..." if len(preview_text) > 200 else "")
+
+    existing = Notification.objects.filter(
+        user=recipient,
+        type="message",
+        related_id=conversation_id,
+        is_read=False,
+    ).first()
+
+    if existing:
+        # Delete any other unread message notifications for this conversation (dedup)
+        Notification.objects.filter(
+            user=recipient,
+            type="message",
+            related_id=conversation_id,
+            is_read=False,
+        ).exclude(pk=existing.pk).delete()
+        existing.title = sender_name
+        existing.message = msg
+        existing.message_count = (existing.message_count or 1) + 1
+        existing.created_at = timezone.now()
+        existing.save(update_fields=["title", "message", "message_count", "created_at"])
+        _broadcast_notification_to_user(
+            recipient.id,
+            NotificationSerializer(existing).data,
+        )
+    else:
+        n = Notification.objects.create(
+            user=recipient,
+            type="message",
+            title=sender_name,
+            message=msg,
+            related_id=conversation_id,
+            message_count=1,
+        )
+        _broadcast_notification_to_user(
+            recipient.id,
+            NotificationSerializer(n).data,
+        )

@@ -9,6 +9,11 @@ from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import *
 from verifications.models import CaregiverVerification
+from verifications.permissions import IsCaregiver
+from bookings.permissions import IsCareSeeker
+from reviews.models import Review
+from django.db.models import Avg, Count, Sum
+from django.utils import timezone
 
 
 def get_tokens_for_user(user):
@@ -99,9 +104,9 @@ class UserProfileView(APIView):
             profile = UserProfile.objects.create(user=request.user)
             
         serializer = UserProfileSerializer(
-    profile,
-    context={"request": request}
-)
+            profile,
+            context={"request": request}
+        )
 
         data = serializer.data
 
@@ -122,6 +127,14 @@ class UserProfileView(APIView):
             except CaregiverVerification.DoesNotExist:
                 data['verification_status'] = None
 
+            # Include rating summary for caregiver profile
+            agg = Review.objects.filter(caregiver=request.user).aggregate(
+                avg_rating=Avg("rating"),
+                review_count=Count("id"),
+            )
+            data["average_rating"] = round(agg["avg_rating"] or 0, 1) if agg["review_count"] else None
+            data["review_count"] = agg["review_count"] or 0
+
         return Response(data, status=200)
 
     def patch(self, request):
@@ -132,11 +145,11 @@ class UserProfileView(APIView):
             profile = UserProfile.objects.create(user=request.user)
 
         serializer = UserProfileSerializer(
-    profile,
-    data=request.data,
-    partial=True,
-    context={"request": request}
-)
+            profile,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
 
         if serializer.is_valid():
             serializer.save()
@@ -168,13 +181,12 @@ class CaregiverProfileView(APIView):
             return Response({"error": "Only caregivers can update this profile"}, status=403)
 
         serializer = CaregiverProfileSerializer(
-    profile,
-    data=request.data,
-    partial=True,
-    context={"request": request}
-)
+            profile,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
 
-        
         if serializer.is_valid():
             serializer.save()
             return Response(
@@ -185,8 +197,8 @@ class CaregiverProfileView(APIView):
 
 
 class AdminUserProfileView(APIView):
-    """Admin-only read access to any user's profile"""
-    permission_classes = [IsAuthenticated, IsAdminUser]
+    """Authenticated users can view any user's profile (for public caregiver profiles)"""
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
         try:
@@ -214,6 +226,14 @@ class AdminUserProfileView(APIView):
                 data["verification_status"] = verification.verification_status
             except CaregiverVerification.DoesNotExist:
                 data["verification_status"] = None
+
+            # Include rating summary for admin view as well
+            agg = Review.objects.filter(caregiver=target_user).aggregate(
+                avg_rating=Avg("rating"),
+                review_count=Count("id"),
+            )
+            data["average_rating"] = round(agg["avg_rating"] or 0, 1) if agg["review_count"] else None
+            data["review_count"] = agg["review_count"] or 0
         return Response(data, status=200)
 
 
@@ -253,3 +273,296 @@ class UserPasswordResetView(APIView):
                 status=status.HTTP_200_OK
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserStatusView(APIView):
+    """Get user presence status (is_online, last_seen). Used for chat presence indicator."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            "is_online": user.is_online,
+            "last_seen": user.last_seen.isoformat() if user.last_seen else None,
+        })
+
+
+class CaregiverDashboardSummaryView(APIView):
+    """Single endpoint for caregiver dashboard summary - stats, recent bookings, profile, earnings."""
+    permission_classes = [IsAuthenticated, IsCaregiver]
+
+    def get(self, request):
+        from bookings.models import Booking
+        from bookings.views import expire_pending_bookings
+        from bookings.serializers import BookingSerializer
+        from payments.models import Payment
+
+        user = request.user
+
+        # Get all caregiver bookings and expire stale pending ones
+        bookings = Booking.objects.filter(caregiver=user).order_by("-created_at")
+        expire_pending_bookings(bookings)
+
+        # Re-fetch after potential expiration updates
+        bookings = list(Booking.objects.filter(caregiver=user).order_by("-created_at"))
+
+        now = timezone.localtime()
+
+        pending_requests = sum(1 for b in bookings if b.status == "pending")
+        upcoming_bookings = sum(
+            1
+            for b in bookings
+            if b.status in ("accepted", "completion_requested")
+            and b.end_datetime > now
+        )
+        completed_services = sum(1 for b in bookings if b.status == "completed")
+
+        # Total earnings: completed payments for completed bookings
+        completed_booking_ids = [b.id for b in bookings if b.status == "completed"]
+        earnings_agg = Payment.objects.filter(
+            booking_id__in=completed_booking_ids,
+            status="completed",
+        ).aggregate(total=Sum("amount"))
+        total_earnings = float(earnings_agg["total"] or 0)
+
+        # Recent 3 requests (serialized for UI)
+        recent_requests = bookings[:3]
+        recent_serializer = BookingSerializer(
+            recent_requests,
+            many=True,
+            context={"request": request},
+        )
+
+        # Profile info
+        try:
+            caregiver_profile = user.caregiver_profile
+            service_types = caregiver_profile.service_types or []
+            hourly_rate = float(caregiver_profile.hourly_rate or 0)
+            available_hours = caregiver_profile.available_hours or ""
+        except CaregiverProfile.DoesNotExist:
+            service_types = []
+            hourly_rate = 0
+            available_hours = ""
+
+        try:
+            verification = user.verification
+            verification_status = verification.verification_status
+        except CaregiverVerification.DoesNotExist:
+            verification_status = "pending"
+
+        # Earnings summary
+        completed_count = completed_services
+        avg_per_booking = total_earnings / completed_count if completed_count > 0 else 0
+
+        return Response({
+            "pending_requests": pending_requests,
+            "upcoming_bookings": upcoming_bookings,
+            "completed_services": completed_services,
+            "total_earnings": round(total_earnings, 2),
+            "recent_requests": recent_serializer.data,
+            "profile": {
+                "verification_status": verification_status,
+                "service_types": service_types,
+                "hourly_rate": hourly_rate,
+                "available_hours": available_hours,
+            },
+            "earnings_summary": {
+                "total_earnings": round(total_earnings, 2),
+                "completed_count": completed_count,
+                "average_per_booking": round(avg_per_booking, 2),
+            },
+        })
+
+
+class CareseekerDashboardSummaryView(APIView):
+    """Single endpoint for careseeker dashboard summary."""
+    permission_classes = [IsAuthenticated, IsCareSeeker]
+
+    def get(self, request):
+        from bookings.models import Booking
+        from bookings.views import expire_pending_bookings
+        from bookings.serializers import BookingSerializer
+
+        user = request.user
+
+        # Get all careseeker bookings and expire stale pending ones
+        bookings = Booking.objects.filter(family=user).order_by("-created_at")
+        expire_pending_bookings(bookings)
+
+        # Re-fetch after potential expiration updates
+        bookings = list(Booking.objects.filter(family=user).order_by("-created_at"))
+
+        now = timezone.localtime()
+
+        # Active = accepted or completion_requested, end time in future
+        active_bookings = sum(
+            1
+            for b in bookings
+            if b.status in ("accepted", "completion_requested") and b.end_datetime > now
+        )
+        pending_requests = sum(1 for b in bookings if b.status == "pending")
+        completed_services = sum(1 for b in bookings if b.status == "completed")
+        total_bookings = len(bookings)
+
+        # Recent 3 bookings
+        recent_bookings = bookings[:3]
+        recent_serializer = BookingSerializer(
+            recent_bookings,
+            many=True,
+            context={"request": request},
+        )
+
+        # Care history: avg session duration, most used service type
+        completed = [b for b in bookings if b.status == "completed"]
+        avg_duration = (
+            sum(b.duration_hours for b in completed) / len(completed)
+            if completed
+            else 0
+        )
+        service_counts = {}
+        for b in completed:
+            for s in b.service_types or []:
+                service_counts[s] = service_counts.get(s, 0) + 1
+        most_used_service = (
+            max(service_counts, key=service_counts.get) if service_counts else None
+        )
+
+        # Notifications derived from recent booking activity
+        notifications = []
+        for b in bookings[:10]:
+            if b.status == "accepted":
+                notifications.append({
+                    "type": "accepted",
+                    "message": f"Caregiver {b.caregiver.username} accepted your booking",
+                    "created_at": b.created_at.isoformat(),
+                    "booking_id": b.id,
+                })
+            elif b.status == "expired":
+                notifications.append({
+                    "type": "expired",
+                    "message": "Booking request expired",
+                    "created_at": b.created_at.isoformat(),
+                    "booking_id": b.id,
+                })
+            elif b.status == "completed":
+                notifications.append({
+                    "type": "completed",
+                    "message": "Service completed",
+                    "created_at": b.created_at.isoformat(),
+                    "booking_id": b.id,
+                })
+        notifications = sorted(
+            notifications,
+            key=lambda x: x["created_at"],
+            reverse=True,
+        )[:5]
+
+        return Response({
+            "active_bookings": active_bookings,
+            "pending_requests": pending_requests,
+            "completed_services": completed_services,
+            "total_bookings": total_bookings,
+            "recent_bookings": recent_serializer.data,
+            "notifications": notifications,
+            "care_history": {
+                "total_completed": completed_services,
+                "average_session_duration": round(avg_duration, 1),
+                "most_used_service_type": most_used_service,
+            },
+        })
+
+
+class NotificationsView(APIView):
+    """Returns notifications for the current user (careseeker or caregiver)."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from bookings.models import Booking
+        from bookings.views import expire_pending_bookings
+
+        user = request.user
+
+        if user.role == "careseeker":
+            bookings = Booking.objects.filter(family=user).order_by("-created_at")
+        elif user.role == "caregiver":
+            bookings = Booking.objects.filter(caregiver=user).order_by("-created_at")
+        else:
+            return Response({"notifications": []})
+
+        expire_pending_bookings(bookings)
+        if user.role == "careseeker":
+            bookings = list(Booking.objects.filter(family=user).order_by("-created_at")[:20])
+        else:
+            bookings = list(Booking.objects.filter(caregiver=user).order_by("-created_at")[:20])
+
+        notifications = []
+        for b in bookings:
+            if user.role == "careseeker":
+                if b.status == "accepted":
+                    notifications.append({
+                        "type": "accepted",
+                        "message": f"Caregiver {b.caregiver.username} accepted your booking",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+                elif b.status == "expired":
+                    notifications.append({
+                        "type": "expired",
+                        "message": "Booking request expired",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+                elif b.status == "completed":
+                    notifications.append({
+                        "type": "completed",
+                        "message": "Service completed",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+                elif b.status == "rejected":
+                    notifications.append({
+                        "type": "rejected",
+                        "message": f"Caregiver {b.caregiver.username} declined your booking",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+            else:
+                if b.status == "pending":
+                    notifications.append({
+                        "type": "new_request",
+                        "message": f"New booking request from {b.family.username}",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+                elif b.status == "expired":
+                    notifications.append({
+                        "type": "expired",
+                        "message": "Booking request expired",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+                elif b.status == "completed":
+                    notifications.append({
+                        "type": "completed",
+                        "message": "Service completed",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+                elif b.status in ("accepted", "completion_requested"):
+                    notifications.append({
+                        "type": "accepted",
+                        "message": f"Booking with {b.family.username} accepted",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+
+        notifications = sorted(
+            notifications,
+            key=lambda x: x["created_at"],
+            reverse=True,
+        )
+
+        return Response({"notifications": notifications})

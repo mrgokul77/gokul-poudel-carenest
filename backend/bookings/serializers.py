@@ -1,11 +1,17 @@
 from rest_framework import serializers
+from django.core.exceptions import ObjectDoesNotExist
 from .models import Booking
 from accounts.models import User, CaregiverProfile
+from verifications.models import CaregiverVerification
+from reviews.models import Review
+from django.db.models import Avg, Count
 
 
 class CaregiverListSerializer(serializers.ModelSerializer):
     """Serializes caregiver data for the Find Caregiver list view"""
     booking_status = serializers.SerializerMethodField()
+    average_rating = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
     username = serializers.CharField(source="user.username", read_only=True)
     email = serializers.EmailField(source="user.email", read_only=True)
     user_id = serializers.IntegerField(source="user.id", read_only=True)
@@ -39,6 +45,8 @@ class CaregiverListSerializer(serializers.ModelSerializer):
             "address",
             "has_active_booking",
             "booking_status",
+            "average_rating",
+            "review_count",
         ]
     def get_booking_status(self, obj):
         request = self.context.get("request")
@@ -76,16 +84,31 @@ class CaregiverListSerializer(serializers.ModelSerializer):
             return None
 
     def get_has_active_booking(self, obj):
-        """Check if current user already has pending/accepted booking with this caregiver"""
+        """Check if current user already has an active booking with this caregiver"""
         request = self.context.get("request")
         if request and request.user.is_authenticated and request.user.role == "careseeker":
             has_active = Booking.objects.filter(
                 family=request.user,
                 caregiver=obj.user,
-                status__in=["pending", "accepted"]
+                status__in=["pending", "accepted", "completion_requested"]
             ).exists()
             return has_active
         return False
+
+    def get_average_rating(self, obj):
+        agg = Review.objects.filter(caregiver=obj.user).aggregate(
+            avg_rating=Avg("rating"),
+            review_count=Count("id"),
+        )
+        if not agg["review_count"]:
+            return None
+        return round(agg["avg_rating"] or 0, 1)
+
+    def get_review_count(self, obj):
+        agg = Review.objects.filter(caregiver=obj.user).aggregate(
+            review_count=Count("id"),
+        )
+        return agg["review_count"] or 0
 
 
 
@@ -98,6 +121,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     emergency_contact_phone = serializers.CharField(required=True, max_length=20)
     additional_info = serializers.CharField(required=False, allow_blank=True)
     service_address = serializers.CharField(required=False, allow_blank=True)
+    latitude = serializers.FloatField(required=False, allow_null=True)
+    longitude = serializers.FloatField(required=False, allow_null=True)
 
     def validate_emergency_contact_phone(self, value):
         value = value.strip()
@@ -120,7 +145,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "emergency_contact_phone",
             "additional_info",
             "service_address",
-
+            "latitude",
+            "longitude",
         ]
 
     def validate_date(self, value):
@@ -131,21 +157,31 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        """Ensure requested services are actually offered by this caregiver and validate date/time"""
+        """Ensure requested services are offered, validate hourly slots, and enforce 3-hour lead time"""
         from django.utils import timezone
-        from datetime import datetime
-        
+        from datetime import datetime, timedelta
+
         date = data.get("date")
         start_time = data.get("start_time")
-        
+
         if date and start_time:
+            # Only allow hourly slots (minutes must be 0)
+            if start_time.minute != 0 or start_time.second != 0:
+                raise serializers.ValidationError({
+                    "start_time": ["Invalid time slot. Please select an hourly slot."]
+                })
+
             today = timezone.localdate()
             if date == today:
                 now = timezone.localtime()
-                current_time = now.time()
-                if start_time < current_time:
+                min_booking_time = now + timedelta(hours=3)
+                start_dt = timezone.make_aware(
+                    datetime.combine(date, start_time),
+                    timezone.get_current_timezone(),
+                )
+                if start_dt < min_booking_time:
                     raise serializers.ValidationError({
-                        "start_time": ["You cannot select a past date or time."]
+                        "start_time": ["Invalid time slot. Please select a valid available slot."]
                     })
         
         caregiver_id = data.get("caregiver")
@@ -162,6 +198,13 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                     )
             except CaregiverProfile.DoesNotExist:
                 raise serializers.ValidationError("Caregiver profile not found")
+
+        lat = data.get("latitude")
+        lng = data.get("longitude")
+        if (lat is None) != (lng is None):
+            raise serializers.ValidationError(
+                "latitude and longitude must both be provided or both omitted."
+            )
         return data
 
     def validate_duration_hours(self, value):
@@ -181,7 +224,11 @@ class BookingSerializer(serializers.ModelSerializer):
     caregiver_name = serializers.CharField(source="caregiver.username", read_only=True)
     family_profile_image = serializers.SerializerMethodField()
     caregiver_profile_image = serializers.SerializerMethodField()
+    booking_status = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
+    verification_status = serializers.SerializerMethodField()
+    review_rating = serializers.SerializerMethodField()
+    has_review = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -202,23 +249,50 @@ class BookingSerializer(serializers.ModelSerializer):
             "total_amount",
             "emergency_contact_phone",
             "service_address",
-
+            "latitude",
+            "longitude",
             "additional_info",
             "status",
+            "booking_status",
             "payment_status",
+            "verification_status",
+            "review_rating",
+            "has_review",
             "created_at",
         ]
         read_only_fields = ["family", "status", "created_at", "total_amount"]
 
+    def get_booking_status(self, obj):
+        """
+        Workflow state for display. Statuses map directly:
+        pending, accepted, completion_requested, completed, rejected, expired
+        """
+        return obj.status
+
     def get_payment_status(self, obj):
-        """Get payment status: pending if accepted but not paid, or actual payment status"""
-        if obj.status == "accepted":
-            if hasattr(obj, "payment"):
-                return obj.payment.status
-            return "pending"  # Payment is pending if booking accepted but no payment record yet
-        elif obj.status == "paid":
-            return "completed"
-        return None  # No payment needed for pending/rejected bookings
+        """Paid or Unpaid for display badges. Checks Payment model for accepted/completed bookings."""
+        if obj.status in ("accepted", "completion_requested", "completed"):
+            try:
+                from payments.models import Payment
+                payment = Payment.objects.get(booking=obj)
+                return "paid" if payment.status == "completed" else "unpaid"
+            except ObjectDoesNotExist:
+                return "unpaid"
+        return "unpaid"  # pending, rejected, expired
+
+    def get_review_rating(self, obj):
+        try:
+            return obj.review.rating
+        except Review.DoesNotExist:
+            return None
+        except AttributeError:
+            # related_name may not be prefetched
+            review = Review.objects.filter(booking=obj).first()
+            return review.rating if review else None
+
+    def get_has_review(self, obj):
+        return Review.objects.filter(booking=obj).exists()
+
 
     def get_family_profile_image(self, obj):
         try:
@@ -243,3 +317,10 @@ class BookingSerializer(serializers.ModelSerializer):
         except Exception:
             pass
         return None
+
+    def get_verification_status(self, obj):
+        try:
+            verification = CaregiverVerification.objects.get(user=obj.caregiver)
+            return verification.verification_status
+        except CaregiverVerification.DoesNotExist:
+            return None

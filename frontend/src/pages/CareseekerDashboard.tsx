@@ -1,86 +1,164 @@
 import { useState, useEffect } from "react";
-import Navbar from "../components/Navbar";
 import { Link } from "react-router-dom";
-import { bookingsApi } from "../api/axios";
+import Navbar from "../components/Navbar";
+import { careseekerApi } from "../api/axios";
+import {
+  RecentRequests,
+  QuickActions,
+  type RecentBooking,
+} from "../components/dashboard";
+import {
+  Calendar,
+  Clock,
+  CheckCircle,
+  Activity,
+  Search,
+} from "lucide-react";
 
-interface Booking {
-  id: number;
-  caregiver_name: string;
-  date: string;
-  duration_hours: number;
-  status: string;
+interface Notification {
+  type: string;
+  message: string;
+  created_at: string;
+  booking_id: number;
+}
+
+interface DashboardSummary {
+  active_bookings: number;
+  pending_requests: number;
+  completed_services: number;
+  total_bookings: number;
+  recent_bookings: RecentBooking[];
+  notifications: Notification[];
 }
 
 const CareseekerDashboard = () => {
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchBookings();
+    fetchDashboard();
   }, []);
 
-  const fetchBookings = async () => {
+  const fetchDashboard = async () => {
     try {
-      const res = await bookingsApi.get("list/");
-      setBookings(res.data.slice(0, 5));
+      const res = await careseekerApi.get("dashboard-summary/");
+      setSummary(res.data);
     } catch {
-      setBookings([]);
+      setSummary(null);
     } finally {
       setLoading(false);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-green-50">
+        <Navbar />
+        <div className="flex items-center justify-center py-20">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-gray-300 border-t-green-600" />
+        </div>
+      </div>
+    );
+  }
+
+  const hasBookings = (summary?.total_bookings ?? 0) > 0;
+
   return (
     <div className="min-h-screen bg-green-50">
       <Navbar />
 
-      <div className="max-w-5xl mx-auto px-6 py-8">
-        <h1 className="text-xl font-medium text-gray-800 mb-6">
-          Careseeker Dashboard
-        </h1>
+      <div className="max-w-6xl mx-auto px-6 py-10 space-y-6">
+        <header>
+          <h1 className="text-2xl font-semibold text-gray-800">
+          Find caregivers and manage your bookings.
+          </h1>
+        </header>
 
-        <div className="mb-6">
-          <Link
-            to="/careseeker/find-caregiver"
-            className="inline-block px-4 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700"
-          >
-            Find Caregiver
-          </Link>
-        </div>
-
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="flex justify-between items-center mb-3">
-            <h2 className="text-base font-medium text-gray-800">My Bookings</h2>
+        {!summary ? (
+          <div className="bg-green-50 rounded-xl border border-gray-200 shadow-sm p-8 text-center text-gray-500">
+            Failed to load dashboard. Please try again later.
+          </div>
+        ) : !hasBookings ? (
+          /* Empty state */
+          <div className="bg-green-50 rounded-xl border border-gray-200 shadow-sm p-12 text-center">
+            <p className="text-gray-600 mb-6">
+              You have not made any bookings yet.
+            </p>
             <Link
-              to="/careseeker/bookings"
-              className="text-sm text-green-600 hover:text-green-700"
+              to="/careseeker/find-caregiver"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
             >
-              View all
+              <Search className="w-5 h-5" />
+              Find Caregiver
             </Link>
           </div>
-
-          {loading ? (
-            <p className="text-gray-500 text-sm">Loading...</p>
-          ) : bookings.length === 0 ? (
-            <p className="text-gray-500 text-sm">
-              No bookings yet. Find a caregiver to get started.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {bookings.map((b) => (
+        ) : (
+          <>
+            {/* Section 1 — Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[
+                {
+                  label: "Active Bookings",
+                  value: summary.active_bookings,
+                  icon: Calendar,
+                  color: "text-blue-600",
+                },
+                {
+                  label: "Pending Requests",
+                  value: summary.pending_requests,
+                  icon: Clock,
+                  color: "text-amber-600",
+                },
+                {
+                  label: "Completed Services",
+                  value: summary.completed_services,
+                  icon: CheckCircle,
+                  color: "text-green-600",
+                },
+                {
+                  label: "Total Care Sessions",
+                  value: summary.total_bookings,
+                  icon: Activity,
+                  color: "text-green-600",
+                },
+              ].map((card) => (
                 <div
-                  key={b.id}
-                  className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0"
+                  key={card.label}
+                  className="bg-green-50 rounded-xl border border-gray-200 shadow-sm p-5"
                 >
-                  <span className="text-sm text-gray-800">{b.caregiver_name}</span>
-                  <span className="text-sm text-gray-600">
-                    {b.date} • {b.status}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center ${card.color}`}
+                    >
+                      <card.icon className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {card.value}
+                      </p>
+                      <p className="text-sm text-gray-600">{card.label}</p>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1">
+                <QuickActions variant="careseeker" layout="vertical" />
+              </div>
+              <div className="lg:col-span-2">
+                <RecentRequests
+                  requests={summary.recent_bookings || []}
+                  role="careseeker"
+                  viewAllHref="/careseeker/bookings"
+                  showFindCaregiverButton
+                />
+              </div>
+            </div>
+
+          </>
+        )}
       </div>
     </div>
   );

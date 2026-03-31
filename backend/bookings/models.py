@@ -9,9 +9,11 @@ class Booking(models.Model):
     STATUS_CHOICES = (
         ("pending", "Pending"),
         ("accepted", "Accepted"),
-        ("rejected", "Rejected"),
-        ("paid", "Paid"),
-    )  # Removed cancelled status
+        ("completion_requested", "Completion Requested"),
+        ("completed", "Completed"),
+        ("rejected", "Declined"),
+        ("expired", "Expired"),
+    )
 
     family = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -33,12 +35,14 @@ class Booking(models.Model):
     emergency_contact_phone = models.CharField(max_length=20, blank=True)
     additional_info = models.TextField(blank=True)
     status = models.CharField(
-        max_length=10,
+        max_length=25,
         choices=STATUS_CHOICES,
         default="pending",  # new bookings start as pending
     )  # No cancelled status
     created_at = models.DateTimeField(auto_now_add=True)
     service_address = models.CharField(max_length=255, blank=True)
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -51,10 +55,13 @@ class Booking(models.Model):
         """
         Returns timezone-aware start datetime by combining date and start_time.
         If start_time is missing, defaults to midnight (00:00).
+        Uses Asia/Kathmandu local time.
         """
         time_part = self.start_time if self.start_time else datetime.min.time()
         naive_dt = datetime.combine(self.date, time_part)
-        return timezone.make_aware(naive_dt, timezone.get_current_timezone())
+        # Always localize to Asia/Kathmandu
+        kathmandu_tz = timezone.get_fixed_timezone(345)  # 5*60+45=345
+        return timezone.make_aware(naive_dt, kathmandu_tz)
 
     @property
     def end_datetime(self):
@@ -72,7 +79,7 @@ class Booking(models.Model):
         Returns True if this booking's end time is still in the future.
         Used to check if a caregiver is currently unavailable due to this booking.
         """
-        return self.end_datetime > timezone.now()
+        return self.end_datetime > timezone.localtime()
 
     def overlaps_with(self, other_date, other_start_time, other_duration_hours):
         """

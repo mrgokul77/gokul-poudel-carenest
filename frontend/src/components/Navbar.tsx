@@ -28,7 +28,7 @@ const Navbar = () => {
       </Link>
 
       {/* Center Navigation (Role-based) */}
-      <div className="flex items-center gap-16 mt-5 text-md">
+      <div className="flex items-center gap-x-20 mt-5 text-md">
         <Link to={homePath} className={isActive(homePath)}>
           Dashboard
         </Link>

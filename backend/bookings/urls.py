@@ -4,6 +4,8 @@ from .views import (
     BookingCreateView,
     BookingListView,
     BookingRespondView,
+    BookingMarkServiceCompleteView,
+    BookingConfirmCompletionView,
 )
 
 urlpatterns = [
@@ -11,5 +13,6 @@ urlpatterns = [
     path("", BookingCreateView.as_view(), name="booking-create"),
     path("list/", BookingListView.as_view(), name="booking-list"),
     path("<int:pk>/respond/", BookingRespondView.as_view(), name="booking-respond"),
-    # Removed cancellation endpoint
+    path("<int:pk>/mark-service-complete/", BookingMarkServiceCompleteView.as_view(), name="booking-mark-service-complete"),
+    path("<int:pk>/confirm-completion/", BookingConfirmCompletionView.as_view(), name="booking-confirm-completion"),
 ]

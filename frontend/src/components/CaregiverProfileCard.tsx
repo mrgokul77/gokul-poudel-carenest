@@ -15,7 +15,8 @@ export interface CaregiverProfileCardData {
   address?: string;
   profile_image?: string | null;
   role?: string;
-  average_rating?: number | string | null;
+  review_count?: number;
+  average_rating?: number | null;
   verification_status?: string | null;
   caregiver_details?: {
     service_types?: string[];
@@ -67,9 +68,14 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
               {profile.role === "caregiver" && (
                 <div className="flex items-center gap-1 text-sm text-gray-600">
                   <Star size={14} className="text-yellow-500" />
-                  <span className="font-semibold">
-                    {profile.average_rating ?? "0"}
-                  </span>
+                  {/* Show average rating and review count, or 'New' if no reviews */}
+                  {typeof profile.review_count === "number" && profile.review_count > 0 && typeof profile.average_rating === "number" ? (
+                    <span className="font-semibold">
+                      {profile.average_rating.toFixed(1)} ({profile.review_count} reviews)
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">New (0 reviews)</span>
+                  )}
                 </div>
               )}
             </div>
@@ -81,32 +87,7 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
             <User size={20} className="text-green-600" /> Personal Information
           </h3>
           <div className="space-y-4">
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
-                Email Address
-              </label>
-              <div className="flex items-center gap-2 text-gray-700 bg-green-50 px-3 py-2.5 rounded-lg border border-gray-300">
-                <Mail size={16} className="text-gray-400" /> {profile.email}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
-                Phone Number
-              </label>
-              <div className="flex items-center gap-2 text-gray-700 bg-green-50 px-3 py-2.5 rounded-lg border border-gray-300">
-                <Phone size={16} className="text-gray-400" />{" "}
-                {profile.phone || "Not set"}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
-                Address
-              </label>
-              <div className="flex items-center gap-2 text-gray-700 bg-green-50 px-3 py-2.5 rounded-lg border border-gray-300">
-                <MapPin size={16} className="text-gray-400" />{" "}
-                {profile.address || "Not set"}
-              </div>
-            </div>
+            {/* Bio */}
             {profile.role === "caregiver" && (
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
@@ -117,6 +98,7 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
                 </div>
               </div>
             )}
+            {/* Gender */}
             {profile.role === "caregiver" && (
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
@@ -130,6 +112,35 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
                 </div>
               </div>
             )}
+            {/* Email Address */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
+                Email Address
+              </label>
+              <div className="flex items-center gap-2 text-gray-700 bg-green-50 px-3 py-2.5 rounded-lg border border-gray-300">
+                <Mail size={16} className="text-gray-400" /> {profile.email}
+              </div>
+            </div>
+            {/* Phone Number */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
+                Phone Number
+              </label>
+              <div className="flex items-center gap-2 text-gray-700 bg-green-50 px-3 py-2.5 rounded-lg border border-gray-300">
+                <Phone size={16} className="text-gray-400" />{" "}
+                {profile.phone || "Not set"}
+              </div>
+            </div>
+            {/* Address */}
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
+                Address
+              </label>
+              <div className="flex items-center gap-2 text-gray-700 bg-green-50 px-3 py-2.5 rounded-lg border border-gray-300">
+                <MapPin size={16} className="text-gray-400" />{" "}
+                {profile.address || "Not set"}
+              </div>
+            </div>
           </div>
         </div>
 

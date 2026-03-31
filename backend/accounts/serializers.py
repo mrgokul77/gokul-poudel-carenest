@@ -107,7 +107,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     username = serializers.CharField(source="user.username", read_only=True)
     role = serializers.CharField(source="user.role", read_only=True)
-    profile_image = serializers.ImageField(required=False)
+    phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    address = serializers.CharField(required=False, allow_blank=True)
+    profile_image = serializers.ImageField(required=False, allow_null=True)
+
+    review_count = serializers.SerializerMethodField(read_only=True)
+    average_rating = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = UserProfile
@@ -118,7 +123,32 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "phone",
             "address",
             "profile_image",
+            "review_count",
+            "average_rating",
         ]
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
+
+    def get_review_count(self, obj):
+        user = obj.user
+        if hasattr(user, "role") and user.role == "caregiver":
+            from reviews.models import Review
+            return Review.objects.filter(caregiver=user).count()
+        return None
+
+    def get_average_rating(self, obj):
+        user = obj.user
+        if hasattr(user, "role") and user.role == "caregiver":
+            from reviews.models import Review
+            from django.db.models import Avg
+            avg = Review.objects.filter(caregiver=user).aggregate(avg=Avg("rating"))["avg"]
+            if avg is not None:
+                return round(avg, 1)
+        return None
 
 class UserChangePasswordSerializer(serializers.Serializer):
     password = serializers.CharField(max_length=128, write_only=True)
@@ -137,16 +167,37 @@ class SendPasswordResetEmailSerializer(serializers.Serializer):
         fields = ['email']
 
     def validate_email(self, value):
-        if User.objects.filter(email=value).exists():   
+        from django.core.cache import cache
+        from django.utils import timezone
+        import time
+        if User.objects.filter(email=value).exists():
             user = User.objects.get(email=value)
-            
-            # Build reset link with encoded user ID and token
+            now_ts = int(time.time())
+            email_key = f"reset_req_{value.lower()}"
+            hourly_key = f"reset_hour_{value.lower()}"
+
+            # Cooldown: 60 seconds
+            last_req = cache.get(email_key)
+            if last_req and now_ts - last_req < 60:
+                raise serializers.ValidationError("Please wait 60 seconds before requesting another reset link.")
+
+            # Hourly limit: max 5 per hour
+            req_times = cache.get(hourly_key, [])
+            # Remove requests older than 1 hour
+            req_times = [t for t in req_times if now_ts - t < 3600]
+            if len(req_times) >= 5:
+                raise serializers.ValidationError("Too many reset attempts. Please try again later.")
+
+            # Save current request
+            cache.set(email_key, now_ts, timeout=3600)  # for cooldown
+            req_times.append(now_ts)
+            cache.set(hourly_key, req_times, timeout=3600)
+
+            # ...existing code for sending reset link...
             uid = urlsafe_base64_encode(force_bytes(user.id))
             token = PasswordResetTokenGenerator().make_token(user)
-
             frontend_url = "http://localhost:5173"
             link = f"{frontend_url}/reset-password/{uid}/{token}"
-
             print('Password Reset Link:', link)  # useful for debugging
             body = 'Click the following link to reset your password: \n' + link
             data = {
