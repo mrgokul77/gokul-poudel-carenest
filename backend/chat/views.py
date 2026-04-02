@@ -1,10 +1,5 @@
-"""
-REST API views for chat.
-
-- POST /api/chat/start/  - Start or get existing conversation with a caregiver
-- GET  /api/chat/conversations/  - List user's conversations
-- GET  /api/chat/messages/<id>/  - Get messages for a conversation
-"""
+# REST API for chat: starting conversations and fetching old messages
+# real-time updates come via WebSocket
 from django.db import models
 from django.db.models import Max
 from rest_framework import status
@@ -17,16 +12,7 @@ from .serializers import ConversationListSerializer, MessageSerializer
 
 
 class ChatStartView(APIView):
-    """
-    Start or retrieve a conversation with a caregiver.
-
-    POST /api/chat/start/
-    Body: { "caregiver_id": <id> }
-
-    - Careseekers can start chat with any caregiver.
-    - Caregivers cannot start new conversations (they can only reply).
-    - If conversation exists, return it. Otherwise create it.
-    """
+    # careseekers can start chatting with caregivers - or get existing conv if one exists
     permission_classes = [IsAuthenticated]
 
     def post(self, request):

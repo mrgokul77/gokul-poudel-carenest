@@ -13,6 +13,7 @@ const Navbar = () => {
 
   const homePath = getHomePath(role);
 
+  // don't show navbar until user is logged in and role is known
   if (!isAuthenticated || !role) return null;
 
   const isActive = (path: string) =>
@@ -41,6 +42,9 @@ const Navbar = () => {
             </Link>
             <Link to="/admin/verify-caregivers" className={isActive("/admin/verify-caregivers")}>
               Verify Caregivers
+            </Link>
+            <Link to="/admin/complaints" className={isActive("/admin/complaints")}>
+              Complaints
             </Link>
             <Link to="/admin/reports" className={isActive("/admin/reports")}>
               Reports

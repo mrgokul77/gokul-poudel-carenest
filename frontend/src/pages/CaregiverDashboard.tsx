@@ -14,6 +14,7 @@ const MODAL_SHOWN_KEY = "verification_modal_shown";
 
 type ModalType = "incomplete_profile" | "verification_required" | "pending_review" | null;
 
+// only caring about caregiver-specific stuff
 interface ProfileData {
   phone?: string;
   address?: string;

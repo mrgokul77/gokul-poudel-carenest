@@ -11,10 +11,7 @@ from django.conf import settings
 
 
 class Conversation(models.Model):
-    """
-    A conversation between two users (e.g. careseeker and caregiver).
-    user1_id < user2_id to enforce uniqueness and avoid duplicates.
-    """
+    # a 1-on-1 chat between two people (only one per pair)
     user1 = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -46,7 +43,7 @@ class Conversation(models.Model):
 
 
 class Message(models.Model):
-    """A single message in a conversation."""
+    # individual messages in a conversation
     conversation = models.ForeignKey(
         Conversation,
         on_delete=models.CASCADE,

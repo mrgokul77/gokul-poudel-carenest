@@ -10,9 +10,7 @@ from .models import Review
 from rest_framework.generics import ListAPIView
 from .serializers import ReviewSerializer
 class ReviewListView(ListAPIView):
-    """
-    List all reviews for a given caregiver, with average rating and review count.
-    """
+    # shows all reviews for a caregiver with average rating
     serializer_class = ReviewSerializer
 
     def get_queryset(self):
@@ -32,15 +30,7 @@ class ReviewListView(ListAPIView):
 
 
 class ReviewCreateView(APIView):
-    """
-    Careseeker creates a review for a completed, paid booking.
-
-    Enforces:
-    - booking belongs to current user
-    - booking.status == completed (already implies paid in our workflow)
-    - only one review per booking
-    """
-
+    # careseeker can submit a review after finishing a session with a caregiver
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -50,7 +40,6 @@ class ReviewCreateView(APIView):
 
         booking = serializer.context["booking"]
 
-        # Business rules (duplicated here for clear API errors)
         if request.user.role != "careseeker":
             return Response(
                 {"error": "Only careseekers can submit reviews."},

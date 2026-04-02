@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/payments/', include('payments.urls')),    # payment endpoints
     path('api/chat/', include('chat.urls')),            # chat REST + WebSocket
     path('api/announcements/', include('announcements.urls')),
+    path('api/complaints/', include('complaints.urls')),
 ]
 
 # Serve uploaded files (profile images, verification docs) in development

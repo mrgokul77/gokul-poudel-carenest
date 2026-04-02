@@ -5,13 +5,7 @@ from bookings.models import Booking
 
 
 class Review(models.Model):
-    """
-    Rating + review for a completed booking.
-
-    - One review per booking (OneToOne)
-    - Links careseeker, caregiver, and booking together
-    """
-
+    # after a booking is done, the careseeker can rate the caregiver
     booking = models.OneToOneField(
         Booking,
         on_delete=models.CASCADE,

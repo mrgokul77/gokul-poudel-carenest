@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Megaphone,
   BarChart3,
+  AlertCircle,
 } from "lucide-react";
 import { useNotificationsContext } from "../../context/NotificationsContext";
 
@@ -77,11 +78,11 @@ const QuickActions = ({
 
   const careseekerEntries: ActionEntry[] = [
     {
-      key: "book",
+      key: "my-complaints",
       type: "link",
-      to: "/careseeker/find-caregiver",
-      label: "Book Caregiver",
-      icon: CalendarPlus,
+      to: "/careseeker/complaints",
+      label: "My Complaints",
+      icon: AlertCircle,
     },
     {
       key: "payments",

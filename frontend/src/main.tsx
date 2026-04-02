@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 
+// wrapping everything in context providers for auth and notifications
 import { AuthProvider } from './context/AuthContext'
 import { NotificationsProvider } from './context/NotificationsContext'
 

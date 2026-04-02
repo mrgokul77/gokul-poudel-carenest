@@ -18,10 +18,7 @@ PENDING_RESPONSE_WINDOW_MINUTES = 90
 
 
 def expire_pending_bookings(queryset):
-    """
-    Check pending bookings and mark as expired if caregiver did not respond within 90 minutes.
-    Modifies in place and saves.
-    """
+    # if a caregiver doesn't respond in 90 mins, auto-expire the request
     now = timezone.now()
     cutoff = now - timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES)
     for booking in queryset.filter(status="pending"):
@@ -31,7 +28,7 @@ def expire_pending_bookings(queryset):
 
 
 def get_verified_caregiver_ids():
-    """Returns set of user IDs for approved caregivers only"""
+    # only caregivers who passed admin verification can accept bookings
     return set(
         CaregiverVerification.objects.filter(verification_status="approved").values_list(
             "user_id", flat=True
@@ -40,52 +37,26 @@ def get_verified_caregiver_ids():
 
 
 def get_active_bookings_for_caregiver(caregiver_id):
-    """
-    Returns active bookings for a caregiver that are still ongoing or in the future.
-    
-    A booking is considered "active" and blocks availability when:
-    1. Its status is 'accepted' or 'completion_requested'
-    2. Its end time is still in the future (not yet completed)
-    
-    Past bookings are automatically considered completed and don't block availability.
-    """
+    # returns bookings that are actually happening right now or in the future
+    # we filter by end_datetime in Python instead of the DB because it's a calculated property
     now = timezone.localtime()
     
-    # Get all accepted/completion_requested bookings for this caregiver
     bookings = Booking.objects.filter(
         caregiver_id=caregiver_id,
         status__in=["accepted", "completion_requested"]
     )
     
-    # Filter to only those that are still ongoing or in the future
-    # We use Python filtering because end_datetime is a computed property
     active_bookings = [b for b in bookings if b.end_datetime > now]
     
     return active_bookings
 
 
 def caregiver_has_overlap(caregiver_id, date, start_time, duration_hours, exclude_booking_id=None):
-    """
-    Check if a caregiver has any overlapping active bookings for the given time slot.
-    
-    This is the core availability check used when:
-    - Creating a new booking
-    - Accepting a booking request
-    
-    Args:
-        caregiver_id: The caregiver to check
-        date: The proposed booking date
-        start_time: The proposed start time
-        duration_hours: The proposed duration
-        exclude_booking_id: Optional booking ID to exclude (used when checking existing booking)
-        
-    Returns:
-        True if there's an overlap (caregiver is NOT available), False otherwise
-    """
+    # checks if a caregiver is already booked during the requested time
+    # TODO: optimize this with better interval logic
     active_bookings = get_active_bookings_for_caregiver(caregiver_id)
     
     for booking in active_bookings:
-        # Skip the booking we're checking (for update scenarios)
         if exclude_booking_id and booking.id == exclude_booking_id:
             continue
             
@@ -96,7 +67,7 @@ def caregiver_has_overlap(caregiver_id, date, start_time, duration_hours, exclud
 
 
 class VerifiedCaregiverListView(APIView):
-    """Lists only verified caregivers - used in Find Caregiver page"""
+    # returns caregivers that can accept bookings - verified with complete profiles
     permission_classes = [IsAuthenticated, IsCareSeeker]
 
     def get(self, request):

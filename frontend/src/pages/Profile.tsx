@@ -4,7 +4,7 @@ import api from "../api/axios";
 
 const API_BASE = "http://127.0.0.1:8000";
 
-/** Resolve profile_image to full URL (backend may return relative path) */
+/** turns relative URLs into full URLs so we can display images from the backend */
 const resolveProfileImageUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -42,7 +42,7 @@ const SERVICE_ICONS: { [key: string]: React.ElementType } = {
 const SERVICE_TYPES = [
   "Elderly Companionship",
   "Daily Living Assistance",
-
+  // TODO: add more services as we expand
   "Medication Reminders",  
   "Light Household Help",
   
@@ -75,21 +75,20 @@ const Profile = () => {
   const [message, setMessage] = useState<any>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
 
-  /* --------------------- PROFILE VALIDATION FOR UPLOAD --------------------- */
+  /* checking if they filled in all the required fields before uploading docs */
   const validateProfileForUpload = (): boolean => {
     const errors: string[] = [];
 
-    // Phone must be exactly 10 digits
+    // must be exactly 10 digits
     if (!form.phone || form.phone.replace(/\D/g, "").length !== 10) {
       errors.push("Phone (must be exactly 10 digits)");
     }
 
-    // Address is required
     if (!form.address || form.address.trim() === "") {
       errors.push("Address");
     }
 
-    // Caregiver-specific fields
+    // caregiver-specific required fields
     if (!caregiverForm.gender || caregiverForm.gender.trim() === "") {
       errors.push("Gender");
     }
@@ -106,13 +105,13 @@ const Profile = () => {
       errors.push("Available Hours");
     }
 
-    // Hourly rate must be greater than 0
+    // rate must be positive
     const rate = Number(caregiverForm.hourly_rate);
     if (!caregiverForm.hourly_rate || rate <= 0) {
       errors.push("Hourly Rate (must be greater than 0)");
     }
 
-    // At least one service type selected
+    // needs at least one service type selected
     if (!caregiverForm.service_types || caregiverForm.service_types.length === 0) {
       errors.push("At least one Service Type");
     }
@@ -156,13 +155,15 @@ const Profile = () => {
 
   const loadProfile = async () => {
     try {
+      // checks if viewing someone else's profile or own
       const url = isAdminView ? `/admin/profile/${viewUserId}/` : "/profile/";
       const res = await api.get(url);
       const data = res.data;
 
-      console.log("[Profile] Loaded profile data:", data); // TEMP: verify caregiver fields
+      // debug logging (remove later)
+      console.log("[Profile] Loaded profile data:", data);
       if (data.caregiver_details) {
-        console.log("[Profile] Caregiver details:", data.caregiver_details); // TEMP: verify caregiver fields
+        console.log("[Profile] Caregiver details:", data.caregiver_details);
       }
 
       setProfile(data);
@@ -174,9 +175,10 @@ const Profile = () => {
         profile_image: null,
       });
 
-      // Use uploaded profile image from backend (persists on refresh/login)
+      // image comes from backend and persists across page refreshes
       setImagePreview(resolveProfileImageUrl(data.profile_image) || null);
 
+      // load caregiver fields if they're a caregiver
       if (data.role === "caregiver" && data.caregiver_details) {
         setCaregiverForm({
           service_types: data.caregiver_details.service_types || [],

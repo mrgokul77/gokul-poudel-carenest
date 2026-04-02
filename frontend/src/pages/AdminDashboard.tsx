@@ -80,6 +80,7 @@ const AdminDashboard = () => {
     (async () => {
       try {
         setLoadError(null);
+        // TODO: add pagination if data gets too big
         const { data } = await adminApi.get<DashboardSummary>("dashboard-summary/");
         if (!cancelled) setSummary(data);
       } catch {

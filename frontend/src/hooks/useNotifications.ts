@@ -14,7 +14,7 @@ export interface Notification {
 
 const WS_BASE = "ws://127.0.0.1:8000";
 
-/** Stable sort: newest first; one row per id (last wins). */
+// dedupes by ID so we don't show the same notification twice
 function dedupeNotificationsById(items: Notification[]): Notification[] {
   const map = new Map<number, Notification>();
   for (const item of items) {

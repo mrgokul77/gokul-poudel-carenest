@@ -1,15 +1,21 @@
-"""Admin-only views for managing users (list, update, delete)"""
+# admin-only endpoints for managing users
 from django.apps import apps
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 
+from bookings.models import Booking
+from verifications.models import CaregiverVerification
+try:
+    from complaints.models import Complaint
+except ImportError:
+    Complaint = None
+
 from .models import User, UserProfile
 
 
 def _get_profile_image_url(request, user):
-    """Get full profile_image URL from UserProfile."""
     try:
         profile = user.profile
         if profile and profile.profile_image:
@@ -23,7 +29,6 @@ def _get_profile_image_url(request, user):
 
 
 class AdminUserListView(APIView):
-    """GET /api/admin/users/ - List all users (admin only)"""
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     def get(self, request):
@@ -43,7 +48,6 @@ class AdminUserListView(APIView):
 
 
 class AdminUserDetailView(APIView):
-    """PATCH /api/admin/users/{id}/ - Update user. DELETE /api/admin/users/{id}/ - Delete user"""
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     def get_user(self, pk):
@@ -86,7 +90,6 @@ class AdminUserDetailView(APIView):
         user = self.get_user(pk)
         if not user:
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
-        # Prevent admin from deleting themselves
         if user.id == request.user.id:
             return Response(
                 {"error": "Cannot delete your own account"},
@@ -97,14 +100,9 @@ class AdminUserDetailView(APIView):
 
 
 class AdminDashboardSummaryView(APIView):
-    """GET /api/admin/dashboard-summary/ — counts, recent bookings, complaints (if app installed)."""
-
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     def get(self, request):
-        from bookings.models import Booking
-        from verifications.models import CaregiverVerification
-
         recent_qs = Booking.objects.select_related("family", "caregiver").order_by("-created_at")[:5]
         recent_bookings = [
             {
@@ -118,12 +116,12 @@ class AdminDashboardSummaryView(APIView):
 
         open_complaints = 0
         recent_complaints = []
-        if apps.is_installed("complaints"):
-            from complaints.models import Complaint
 
+        if Complaint:
             open_complaints = Complaint.objects.filter(
                 status__in=("open", "investigating")
             ).count()
+
             for c in Complaint.objects.select_related("reporter").order_by("-created_at")[:5]:
                 desc = (c.description or "").strip()
                 first_line = desc.split("\n")[0] if desc else ""

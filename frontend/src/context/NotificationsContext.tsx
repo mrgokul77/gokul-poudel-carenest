@@ -23,6 +23,7 @@ const NotificationsContext = createContext<NotificationsContextType | undefined>
 
 export const NotificationsProvider = ({ children }: { children: ReactNode }) => {
   const { isAuthenticated, role } = useAuth();
+  // admins don't get notifications
   const enabled =
     isAuthenticated && role !== null && role !== "admin";
   const {

@@ -2,7 +2,7 @@ from django.core.mail import EmailMessage
 import os
 
 class util:
-    """Email utility - handles OTP and password reset emails"""
+    # helper to send emails - used for OTP and password resets
     @staticmethod
     def send_email(data):
         email = EmailMessage(

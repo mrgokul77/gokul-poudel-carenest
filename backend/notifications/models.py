@@ -6,8 +6,7 @@ from django.conf import settings
 
 
 class Notification(models.Model):
-    """User notification with type, content, and related entity for redirection."""
-
+    # tells users about new bookings, payments, or messages
     TYPE_CHOICES = [
         ("booking", "Booking"),
         ("payment", "Payment"),

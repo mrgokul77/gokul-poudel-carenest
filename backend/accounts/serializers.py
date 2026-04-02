@@ -10,7 +10,7 @@ from datetime import timedelta
 import json
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    """Handles signup - generates OTP and sends verification email"""
+    # generates random 6-digit code and sends it via email
     class Meta:
         model = User
         fields = ['email', 'username', 'password', 'role']
@@ -19,25 +19,24 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         }
         
     def validate(self, attrs):
-        # Generate OTP during validation so it's ready for create()
+        # made it a property so create() can also access it
         self.otp = random.randint(100000, 999999)
         return attrs
 
     def create(self, validated_data):
         user = User.objects.create_user(**validated_data)
 
-        # Store OTP for verification
+        # saving it here so we can compare when the user submits their OTP
         user.otp = self.otp
         user.otp_created_at = now()
         user.is_verified = False
         user.save()
 
-        # Auto-create profiles so they exist when user logs in
+        # gotta make these upfront or the profile endpoints break
         UserProfile.objects.create(user=user)
         if user.role == 'caregiver':
             CaregiverProfile.objects.create(user=user)
 
-        # Send OTP email
         body = f"Your CareNest OTP is {self.otp}. It is valid for 10 minutes."
         data = {
             'subject': 'Verify your CareNest account',
@@ -49,7 +48,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return user
 
 class VerifyOTPSerializer(serializers.Serializer):
-    """Validates OTP and marks user as verified"""
+    # matches what frontend sends and compares with stored OTP
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=6)
 
@@ -68,16 +67,16 @@ class VerifyOTPSerializer(serializers.Serializer):
         if str(user.otp) != str(otp):
             raise serializers.ValidationError("Invalid OTP")
 
-        # OTP expires after 10 minutes
+        # TODO: make this configurable, hardcoded 10 mins for now
         if now() > user.otp_created_at + timedelta(minutes=10):
             raise serializers.ValidationError("OTP has expired")
 
-        # Mark verified and clear OTP
+        # marking verified so login works
         user.is_verified = True
         user.otp = None
         user.save()
 
-        # Safety check - create profiles if missing (shouldn't happen normally)
+        # just in case something broke during signup (safety net)
         if not hasattr(user, 'profile'):
             UserProfile.objects.create(user=user)
         if user.role == 'caregiver' and not hasattr(user, 'caregiver_profile'):
@@ -160,7 +159,7 @@ class UserChangePasswordSerializer(serializers.Serializer):
         return data
 
 class SendPasswordResetEmailSerializer(serializers.Serializer):
-    """Generates reset token and emails link to user"""
+    # Generates a token and sends link. Rate-limited to prevent spam
     email = serializers.EmailField(max_length=255)
 
     class Meta:
@@ -176,29 +175,26 @@ class SendPasswordResetEmailSerializer(serializers.Serializer):
             email_key = f"reset_req_{value.lower()}"
             hourly_key = f"reset_hour_{value.lower()}"
 
-            # Cooldown: 60 seconds
+            # prevents them from spamming reset requests
             last_req = cache.get(email_key)
             if last_req and now_ts - last_req < 60:
                 raise serializers.ValidationError("Please wait 60 seconds before requesting another reset link.")
 
-            # Hourly limit: max 5 per hour
+            # max 5 resets per hour to prevent abuse
             req_times = cache.get(hourly_key, [])
-            # Remove requests older than 1 hour
             req_times = [t for t in req_times if now_ts - t < 3600]
             if len(req_times) >= 5:
                 raise serializers.ValidationError("Too many reset attempts. Please try again later.")
 
-            # Save current request
-            cache.set(email_key, now_ts, timeout=3600)  # for cooldown
+            cache.set(email_key, now_ts, timeout=3600)
             req_times.append(now_ts)
             cache.set(hourly_key, req_times, timeout=3600)
 
-            # ...existing code for sending reset link...
             uid = urlsafe_base64_encode(force_bytes(user.id))
             token = PasswordResetTokenGenerator().make_token(user)
             frontend_url = "http://localhost:5173"
             link = f"{frontend_url}/reset-password/{uid}/{token}"
-            print('Password Reset Link:', link)  # useful for debugging
+            print('Password Reset Link:', link)
             body = 'Click the following link to reset your password: \n' + link
             data = {
                 'subject': 'Reset Your Password',
@@ -211,7 +207,7 @@ class SendPasswordResetEmailSerializer(serializers.Serializer):
             raise serializers.ValidationError("You are not a registered user")
         
 class UserPasswordResetSerializer(serializers.Serializer):
-    """Decodes token from URL and sets new password"""
+    # validates the token and sets a new password if it's still valid
     password = serializers.CharField(max_length=128, write_only=True)
 
     class Meta:
@@ -219,7 +215,6 @@ class UserPasswordResetSerializer(serializers.Serializer):
 
     def validate_password(self, attrs):
         try:
-            # uid and token come from URL params via context
             uid = self.context.get('uid')
             token = self.context.get('token')
             id = smart_str(urlsafe_base64_decode(uid))

@@ -44,6 +44,7 @@ const CareseekerDashboard = () => {
       const res = await careseekerApi.get("dashboard-summary/");
       setSummary(res.data);
     } catch {
+      // TODO: show error toast instead of silently failing
       setSummary(null);
     } finally {
       setLoading(false);

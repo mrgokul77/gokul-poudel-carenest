@@ -1,6 +1,4 @@
-"""
-Notification API: list, mark single read, mark all read.
-"""
+# API for getting notifications and marking them read
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -11,7 +9,7 @@ from .serializers import NotificationSerializer
 
 
 class NotificationListView(APIView):
-    """GET /api/user/notifications/ - List notifications for the current user."""
+    # returns all notifications for the logged-in user
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -20,7 +18,7 @@ class NotificationListView(APIView):
             .order_by("-created_at")
             .distinct()
         )
-        # Optional filter by type
+        # can filter by type if they want (booking, payment, message)
         ntype = request.query_params.get("type", "").strip().lower()
         if ntype in ("booking", "payment", "message"):
             qs = qs.filter(type=ntype)
@@ -29,7 +27,7 @@ class NotificationListView(APIView):
 
 
 class NotificationMarkReadView(APIView):
-    """PATCH /api/user/notifications/<id>/read/ - Mark a single notification as read."""
+    # marks a single notification as read
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):

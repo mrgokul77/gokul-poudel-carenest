@@ -25,11 +25,12 @@ const Signup = () => {
         role,
       });
 
+      // takes them to OTP screen after signup
       navigate("/verify-otp", { state: { email } });
     } catch (err: any) {
       const data = err.response?.data;
       if (data) {
-        // Handle field-specific errors from DRF
+        // show first error from DRF
         const firstError = Object.values(data).flat()[0];
         setError(typeof firstError === 'string' ? firstError : "Signup failed");
       } else {

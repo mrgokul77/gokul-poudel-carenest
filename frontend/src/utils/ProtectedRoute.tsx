@@ -10,17 +10,17 @@ interface ProtectedRouteProps {
 const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
   const { isAuthenticated, role, loading } = useAuth();
 
-  // Wait for auth state to load from localStorage
+  // waits for auth state to load from localStorage (prevents flashing login page)
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
-  // Redirect to login if not authenticated
+  // not logged in? send them to login
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
-  // Check role if specific roles are required
+  // route requires specific role? check it
   if (allowedRoles && (!role || !allowedRoles.includes(role))) {
     return <Navigate to="/login" replace />;
   }

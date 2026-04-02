@@ -5,10 +5,7 @@ from .validators import validate_image_file
 
 
 class CaregiverVerification(models.Model):
-    """
-    Stores caregiver verification documents for admin review.
-    Admin approves/rejects based on uploaded citizenship and certificate images.
-    """
+    # stores the docs that admins need to review and approve caregivers
     VERIFICATION_STATUS = (
         ('pending', 'Pending'),
         ('approved', 'Approved'),

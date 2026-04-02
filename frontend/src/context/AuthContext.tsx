@@ -16,7 +16,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Restore auth state from localStorage on page refresh
+        // checks localStorage on page load to persist login
         const token = localStorage.getItem("access");
         const storedRole = localStorage.getItem("role");
 
@@ -28,7 +28,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     const login = (tokens: { access: string; refresh: string }, role: string, user_id: number) => {
-        // Store tokens and user info for API calls
+        // saving everything so axios interceptor can use the token
         localStorage.setItem("access", tokens.access);
         localStorage.setItem("refresh", tokens.refresh);
         localStorage.setItem("role", role);
@@ -39,13 +39,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const logout = () => {
-        // Clear all auth data
         localStorage.removeItem("access");
         localStorage.removeItem("refresh");
         localStorage.removeItem("role");
         localStorage.removeItem("user_id");
 
-        // Reset verification modal flag so it shows again on next login
+        // resets so modal shows again on next login (they need to verify profile)
         sessionStorage.removeItem("verification_modal_shown");
 
         setIsAuthenticated(false);

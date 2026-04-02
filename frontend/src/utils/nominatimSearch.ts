@@ -1,6 +1,6 @@
 /**
- * Nominatim forward search restricted to Nepal (server + client filter).
- * Uses same dev proxy as MapSelector: /api-osm → nominatim.openstreetmap.org
+ * Search Nominatim  for locations in Nepal only.
+ * Uses Vite proxy in dev, direct request in prod.
  */
 
 function nominatimBase(): string {

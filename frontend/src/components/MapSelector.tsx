@@ -7,8 +7,7 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
-// Vite bundler: restore default marker images
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// vite throws errors if we don't restore marker images manually (build weirdness)
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
@@ -16,7 +15,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: markerShadow,
 });
 
-/** Kathmandu — default map view */
+// default center: Kathmandu (where we're launching first)
 export const DEFAULT_MAP_CENTER: [number, number] = [27.7172, 85.324];
 const DEFAULT_ZOOM = 13;
 
@@ -26,7 +25,7 @@ export type MapLocationResult = {
   longitude: number;
 };
 
-/** Dev: Vite proxy. Prod: direct (Nominatim allows browser requests for light use). */
+// in dev, use Vite proxy; in prod, direct to Nominatim (they allow light browser use)
 function nominatimBase(): string {
   return import.meta.env.DEV ? "/api-osm" : "https://nominatim.openstreetmap.org";
 }
@@ -91,8 +90,8 @@ export interface MapSelectorProps {
 }
 
 /**
- * OpenStreetMap tiles + click-to-place marker + Nominatim reverse geocoding.
- * No API keys required.
+ * Click-to-place a marker on the map, then reverse-geocode to get the address.
+ * No API keys needed — uses free OpenStreetMap tiles + Nominatim.
  */
 export default function MapSelector({
   initialLatLng,

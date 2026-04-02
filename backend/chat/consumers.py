@@ -1,13 +1,11 @@
 """
-WebSocket consumer for real-time chat.
+WebSocket handler for real-time chat.
 
-When a user connects to ws://localhost:8000/ws/chat/<conversation_id>/:
-1. Verify JWT from query string
-2. Verify user is a participant in the conversation
-3. Join room: conversation_<id>
-4. On connect: mark user online, broadcast presence
-5. On disconnect: mark user offline, broadcast presence
-6. On message received: save to DB, broadcast to room
+When users connect:
+1. Verify JWT token from query string
+2. Make sure they're actually in this conversation
+3. Mark them online and broadcast presence
+4. Listen for new messages and broadcast to room
 """
 import json
 import logging
@@ -27,18 +25,18 @@ User = get_user_model()
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
-    """Handles WebSocket connections for a single conversation."""
+    # handles one WebSocket connection for a conversation
 
     async def connect(self):
         """
-        Accept connection only if:
+        Accepts connection only if:
         - Valid JWT token in query string
         - User is a participant in this conversation
         """
         self.conversation_id = self.scope["url_route"]["kwargs"]["conversation_id"]
         self.room_name = f"conversation_{self.conversation_id}"
 
-        # Get token from query string (e.g. ?token=xxx)
+        # get token from query string (e.g ?token=xxx)
         query_string = self.scope.get("query_string", b"").decode()
         token = None
         for part in query_string.split("&"):
@@ -55,7 +53,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.close(code=4001)
             return
 
-        # Verify user is in this conversation
+        # make sure they're actually in this conversation
         in_conversation = await self._user_in_conversation(user, self.conversation_id)
         if not in_conversation:
             await self.close(code=4003)
@@ -66,25 +64,21 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.room_name, self.channel_name)
         await self.accept()
 
-        # Mark user online and broadcast presence to room
+        # mark them as online and tell others
         await self._update_presence(user.id, is_online=True)
         await self._broadcast_presence(user.id, is_online=True)
 
     async def disconnect(self, close_code):
         user = self.scope.get("user")
         if user:
-            # Mark user offline and broadcast presence before leaving
+            # mark them offline and tell others before disconnecting
             await self._update_presence(user.id, is_online=False)
             await self._broadcast_presence(user.id, is_online=False)
         await self.channel_layer.group_discard(self.room_name, self.channel_name)
 
     async def receive(self, text_data):
-        """
-        When a message is received:
-        1. Parse JSON
-        2. Save to database
-        3. Broadcast to everyone in the room (including sender)
-        """
+        # when a new message comes in:
+        # save it, then broadcast to everyone in the room
         try:
             data = json.loads(text_data)
             text = (data.get("text") or "").strip()

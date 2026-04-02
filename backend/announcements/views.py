@@ -9,6 +9,7 @@ from .serializers import AnnouncementSerializer
 
 
 def _visible_for_user(qs, user):
+    # admins see everything, regular users see based on their role
     if user.is_staff or getattr(user, "role", None) == "admin":
         return qs
     qs = qs.filter(is_active=True)
@@ -27,8 +28,7 @@ def _visible_for_user(qs, user):
 
 
 class AnnouncementListView(APIView):
-    """GET /api/announcements/ — list announcements visible to the current user."""
-
+    # shows announcements based on user role - need to see if they're an admin or regular user
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -38,11 +38,11 @@ class AnnouncementListView(APIView):
 
 
 class AdminAnnouncementListCreateView(APIView):
-    """GET/POST /api/admin/announcements/ — list or create announcements (admin only)."""
-
+    # admin-only: can posting announcements that target caregivers/careseekers/everyone
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     def get(self, request):
+        # admin sees all announcements
         qs = Announcement.objects.all().order_by("-created_at")
         serializer = AnnouncementSerializer(qs, many=True)
         return Response({"announcements": serializer.data})

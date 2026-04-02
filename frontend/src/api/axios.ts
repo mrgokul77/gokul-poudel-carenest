@@ -9,7 +9,7 @@ const REFRESH_URL = "http://127.0.0.1:8000/api/user/token/refresh/";
 type TokenRefreshListener = () => void;
 const tokenRefreshListeners: TokenRefreshListener[] = [];
 
-/** Notify WebSockets (and other subscribers) to reconnect with the new access token. */
+// when the token refreshes, WebSockets need to reconnect with the new one
 function notifyAccessTokenRefreshed() {
   tokenRefreshListeners.forEach((cb) => {
     try {
@@ -22,7 +22,7 @@ function notifyAccessTokenRefreshed() {
   });
 }
 
-/** Subscribe to successful access-token refresh (e.g. reconnect WebSockets). */
+// lets other parts of the app know when the token got refreshed
 export function subscribeAccessTokenRefresh(cb: TokenRefreshListener) {
   tokenRefreshListeners.push(cb);
   return () => {
@@ -34,6 +34,7 @@ export function subscribeAccessTokenRefresh(cb: TokenRefreshListener) {
 let refreshPromise: Promise<string | null> | null = null;
 
 async function performTokenRefresh(): Promise<string | null> {
+  // prevent multiple refresh calls at once
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
@@ -272,6 +273,25 @@ announcementsApi.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Separate instance for complaint endpoints
+export const complaintsApi = axios.create({
+  baseURL: "http://127.0.0.1:8000/api/complaints/",
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+complaintsApi.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem("access");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
 const clientsWithRefresh: AxiosInstance[] = [
   api,
   bookingsApi,
@@ -282,6 +302,7 @@ const clientsWithRefresh: AxiosInstance[] = [
   adminApi,
   reviewsApi,
   announcementsApi,
+  complaintsApi,
 ];
 clientsWithRefresh.forEach(attach401Refresh);
 

@@ -16,7 +16,7 @@ from .serializers import (
 
 
 class PaymentListView(APIView):
-    """GET /api/payments/ - List payments for the authenticated user"""
+    # returns payments for the logged-in user - what they paid or what they got paid
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -37,15 +37,14 @@ class PaymentListView(APIView):
 
 
 class InitiateKhaltiPaymentView(APIView):
-    """Initiate Khalti payment for a booking"""
+    # starts the Khalti payment flow for a completed booking
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # Debug: Print incoming request data
+        # TODO: clean up all these debug print statements later
         print("DEBUG - Incoming request data:", request.data)
         print("DEBUG - Content-Type:", request.content_type)
         
-        # Validate booking_id is present
         booking_id = request.data.get("booking_id")
         if booking_id is None:
             return Response(

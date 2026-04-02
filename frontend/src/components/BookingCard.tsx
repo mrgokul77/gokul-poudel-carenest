@@ -39,10 +39,13 @@ export interface BookingCardProps {
   onConfirmCompletion?: (bookingId: number) => void;
   onRate?: (booking: Booking) => void;
   onPay?: (bookingId: number, totalAmount?: string | null | undefined) => void;
+  onFileComplaint?: (bookingId: number, caregiverName: string) => void;
+  hasActiveComplaint?: boolean;
   paymentLoading?: number | null;
   payClicked?: number | null;
 }
 
+// status badge styling - shows if booking is pending, accepted, completed, etc
 const bookingStatusStyles: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700",
   accepted: "bg-blue-100 text-blue-700",
@@ -74,10 +77,10 @@ const BookingStatusBadge = ({ status }: { status?: string }) => {
 
 const getInitial = (name: string) => name?.charAt(0).toUpperCase();
 
-
+// formats duration like "2 hours" or "1 hour"
 const formatDuration = (hours: number) => `${hours} ${hours === 1 ? "hour" : "hours"}`;
 
-// Format time string (HH:mm:ss) to 12-hour format with AM/PM
+// converts time string (HH:mm:ss) to 12-hour format with AM/PM
 const formatTime12Hour = (timeStr?: string) => {
   if (!timeStr) return "";
   const [hour, minute] = timeStr.split(":");
@@ -87,7 +90,7 @@ const formatTime12Hour = (timeStr?: string) => {
   let hours = date.getHours();
   const ampm = hours >= 12 ? "PM" : "AM";
   hours = hours % 12;
-  hours = hours ? hours : 12; // the hour '0' should be '12'
+  hours = hours ? hours : 12;
   const minutes = date.getMinutes().toString().padStart(2, "0");
   return `${hours}:${minutes} ${ampm}`;
 };
@@ -102,6 +105,8 @@ const BookingCard: React.FC<BookingCardProps> = ({
   onConfirmCompletion,
   onRate,
   onPay,
+  onFileComplaint,
+  hasActiveComplaint,
   paymentLoading,
   payClicked,
 }) => {
@@ -290,42 +295,63 @@ const BookingCard: React.FC<BookingCardProps> = ({
 
       {/* Careseeker actions */}
       {role === "careseeker" && showActions && (
-        <div className="flex justify-end items-end gap-3 mt-4">
-          {/* COMPLETION_REQUESTED: Confirm Completion */}
-          {(status === "completion_requested" || booking.status === "completion_requested") && (
-            <button
-              onClick={() => onConfirmCompletion && onConfirmCompletion(booking.id)}
-              className="px-5 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm transition-colors"
-            >
-              Confirm Completion
-            </button>
-          )}
-          {/* COMPLETED + UNPAID: Pay with Khalti */}
-          {status === "completed" &&
-            paymentStatus.toLowerCase() !== "paid" &&
-            onPay && (
-              <button
-                onClick={() => onPay(booking.id, booking.total_amount)}
-                disabled={!!(paymentLoading === booking.id || payClicked === booking.id)}
-                className="px-5 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {paymentLoading === booking.id || payClicked === booking.id
-                  ? "Processing..."
-                  : "Pay with Khalti"}
-              </button>
+        <div className="flex justify-between items-end gap-3 mt-4">
+          {/* Left side: Complaints */}
+          <div>
+            {onFileComplaint && (
+              hasActiveComplaint ? (
+                <span className="px-4 py-1.5 text-xs font-semibold text-amber-700 bg-amber-100 rounded-lg">
+                  Complaint Pending
+                </span>
+              ) : (
+                <button
+                  onClick={() => onFileComplaint(booking.id, displayName)}
+                  className="px-4 py-1.5 text-xs font-medium text-red-600 border border-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                >
+                  File Complaint
+                </button>
+              )
             )}
-          {/* COMPLETED + PAID: Rate & Review (when no review yet) */}
-          {status === "completed" &&
-            paymentStatus.toLowerCase() === "paid" &&
-            !booking.has_review &&
-            onRate && (
+          </div>
+
+          {/* Right side: Other actions */}
+          <div className="flex gap-3">
+            {/* COMPLETION_REQUESTED: Confirm Completion */}
+            {(status === "completion_requested" || booking.status === "completion_requested") && (
               <button
-                onClick={() => onRate(booking)}
+                onClick={() => onConfirmCompletion && onConfirmCompletion(booking.id)}
                 className="px-5 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm transition-colors"
               >
-                Rate & Review
+                Confirm Completion
               </button>
             )}
+            {/* COMPLETED + UNPAID: Pay with Khalti */}
+            {status === "completed" &&
+              paymentStatus.toLowerCase() !== "paid" &&
+              onPay && (
+                <button
+                  onClick={() => onPay(booking.id, booking.total_amount)}
+                  disabled={!!(paymentLoading === booking.id || payClicked === booking.id)}
+                  className="px-5 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {paymentLoading === booking.id || payClicked === booking.id
+                    ? "Processing..."
+                    : "Pay with Khalti"}
+                </button>
+              )}
+            {/* COMPLETED + PAID: Rate & Review (when no review yet) */}
+            {status === "completed" &&
+              paymentStatus.toLowerCase() === "paid" &&
+              !booking.has_review &&
+              onRate && (
+                <button
+                  onClick={() => onRate(booking)}
+                  className="px-5 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm transition-colors"
+                >
+                  Rate & Review
+                </button>
+              )}
+          </div>
         </div>
       )}
     </div>

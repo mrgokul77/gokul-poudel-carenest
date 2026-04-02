@@ -14,12 +14,14 @@ import ChatPage from "./pages/ChatPage";
 import CaregiverUpload from "./pages/CaregiverUpload";
 import AdminVerify from "./pages/AdminVerify";
 import AdminUsersPage from "./pages/AdminUsersPage";
+import AdminComplaints from "./pages/AdminComplaints";
 import AdminPlaceholderPage from "./pages/AdminPlaceholderPage";
 import AdminSendAnnouncementPage from "./pages/AdminSendAnnouncementPage";
 import CaregiverBookingRequests from "./pages/CaregiverBookingRequests";
 import EarningsHistoryPage from "./pages/EarningsHistoryPage";
 import ReviewsReceivedPage from "./pages/ReviewsReceivedPage";
 import CareseekerBookings from "./pages/CareseekerBookings";
+import MyComplaints from "./pages/careseeker/MyComplaints";
 import PaymentVerify from "./pages/PaymentVerify";
 import PaymentHistoryPage from "./pages/PaymentHistoryPage";
 
@@ -35,14 +37,14 @@ function App() {
     <BrowserRouter>
       <Routes>
 
-        {/* No auth required - signup/login/password flows */}
+        {/* no login required - anyone can see signup/login/password reset */}
         <Route path="/" element={<Signup />} />
         <Route path="/login" element={<Login />} />
         <Route path="/verify-otp" element={<VerifyOTP />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
 
-        {/* Role-specific dashboards - each user type lands here after login */}
+        {/* each role goes to their own dashboard after login */}
         <Route
           path="/careseeker/dashboard"
           element={
@@ -68,7 +70,7 @@ function App() {
           }
         />
 
-        {/* Profile - same component, admin uses userId param for read-only view */}
+        {/* Profile - same page, but admin sees read-only view of any caregiver */}
         <Route
           path="/profile"
           element={
@@ -94,7 +96,7 @@ function App() {
           }
         />
 
-        {/* Caregiver verification flow */}
+        {/* caregivers upload citizenship + training cert here for admin review */}
         <Route
           path="/caregiver/upload-documents"
           element={
@@ -123,7 +125,7 @@ function App() {
           path="/admin/complaints"
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
-              <AdminPlaceholderPage title="Complaints" />
+              <AdminComplaints />
             </ProtectedRoute>
           }
         />
@@ -144,7 +146,7 @@ function App() {
           }
         />
 
-        {/* Booking workflow - careseeker creates, caregiver responds */}
+        {/* booking workflow: careseeker creates -> caregiver responds -> completes */}
         <Route
           path="/careseeker/find-caregiver"
           element={
@@ -158,6 +160,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["careseeker"]}>
               <CareseekerBookings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/careseeker/complaints"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker"]}>
+              <MyComplaints />
             </ProtectedRoute>
           }
         />

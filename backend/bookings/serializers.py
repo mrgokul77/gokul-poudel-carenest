@@ -8,7 +8,7 @@ from django.db.models import Avg, Count
 
 
 class CaregiverListSerializer(serializers.ModelSerializer):
-    """Serializes caregiver data for the Find Caregiver list view"""
+    # used on the Find Caregiver page to show who's available
     booking_status = serializers.SerializerMethodField()
     average_rating = serializers.SerializerMethodField()
     review_count = serializers.SerializerMethodField()
@@ -49,6 +49,7 @@ class CaregiverListSerializer(serializers.ModelSerializer):
             "review_count",
         ]
     def get_booking_status(self, obj):
+        # shows if the current user already has a pending/active booking with this caregiver
         request = self.context.get("request")
         if request and request.user.is_authenticated and request.user.role == "careseeker":
             booking = Booking.objects.filter(

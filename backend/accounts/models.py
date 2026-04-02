@@ -1,7 +1,7 @@
 from django.contrib.auth.models import BaseUserManager, AbstractBaseUser, PermissionsMixin
 from django.db import models
 
-# Custom user manager for handling user creation
+# needed this so we could use email instead of username for login
 class UserManager(BaseUserManager):
     def create_user(self, email, username, password=None, role="careseeker"):
         if not email:
@@ -16,7 +16,7 @@ class UserManager(BaseUserManager):
         return user
 
     def create_superuser(self, email, username, password=None):
-        # Admin users skip OTP and get full access
+        # skipping OTP for admin so they can log in immediately
         user = self.create_user(
             email=email,
             username=username,
@@ -25,11 +25,11 @@ class UserManager(BaseUserManager):
         user.is_admin = True
         user.is_superuser = True
         user.role = "admin"
-        user.is_verified = True  # admins bypass email verification
+        user.is_verified = True
         user.save(using=self._db)
         return user
 
-# Custom user model - uses email as username, supports roles
+# three roles: careseeker (looking for help), caregiver (provides help), admin (manages everything)
 class User(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = (
         ('careseeker', 'Care Seeker'),
@@ -40,12 +40,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     username = models.CharField(max_length=30, unique=True)
     is_active = models.BooleanField(default=True)
     is_admin = models.BooleanField(default=False)
-    # OTP verification fields
+    # storing OTP here so we can send it via email and verify it later
     is_verified = models.BooleanField(default=False)
     otp = models.CharField(max_length=6, blank=True, null=True)
     otp_created_at = models.DateTimeField(blank=True, null=True)
 
-    # Presence (updated by WebSocket connect/disconnect)
+    # tracking who's online for chat - real-time updates via WebSocket
     is_online = models.BooleanField(default=False)
     last_seen = models.DateTimeField(null=True, blank=True)
 
@@ -61,7 +61,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.email
 
     def has_perm(self, perm, obj=None):
-        # Only admins have Django permissions
+        # only admins can access Django admin stuff
         return self.is_admin
 
     def has_module_perms(self, app_label):
@@ -69,21 +69,21 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_staff(self):
-        # Required for Django admin access
+        # needed this so admin users can access /admin panel
         return self.is_admin
 
 
-# Common profile for all users - phone, address, image
+# basic info for everyone - helps with finding caregivers by location
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     phone = models.CharField(max_length=20, blank=True)
-    address = models.TextField(blank=True)  # city/area for location filtering
+    address = models.TextField(blank=True)  # TODO: maybe filter profiles by distance later
     profile_image = models.ImageField(upload_to="profiles/", null=True, blank=True)
 
     def __str__(self):
         return f"Profile: {self.user.email}"
 
-# Extra fields for caregivers - services, credentials, bio
+# only caregivers need this - describes what they offer and their experience
 class CaregiverProfile(models.Model):
     GENDER_CHOICES = (
         ('male', 'Male'),
@@ -91,7 +91,7 @@ class CaregiverProfile(models.Model):
         ('prefer_not_to_say', 'Prefer not to say'),
     )
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="caregiver_profile")
-    service_types = models.JSONField(default=list, blank=True)  # array of service names
+    service_types = models.JSONField(default=list, blank=True)  # like "elderly care", "medication reminders", etc
     training_authority = models.CharField(max_length=255, blank=True)
     certification_year = models.IntegerField(null=True, blank=True)
     available_hours = models.CharField(max_length=255, blank=True)

@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 
-# Stores payment information for each booking
+# links a payment to a booking - tracks money exchanged for caregiving services
 class Payment(models.Model):
 	amount = models.DecimalField(max_digits=10, decimal_places=2)
 	status = models.CharField(

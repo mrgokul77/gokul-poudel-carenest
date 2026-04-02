@@ -27,7 +27,7 @@ Dear {username},
 
 We’re pleased to inform you that your documents have been successfully verified.
 
-Your caregiver account is now active. You can begin completing your profile and responding to care requests through your dashboard.
+Your caregiver account is now active. You can begin responding to care requests through your dashboard.
 
 Thank you for choosing CareNest.
 

@@ -17,7 +17,7 @@ from django.utils import timezone
 
 
 def get_tokens_for_user(user):
-    """Generate JWT tokens manually for login response"""
+    # creating JWT tokens that the frontend stores and sends with each request
     refresh = RefreshToken.for_user(user)
 
     return {
@@ -62,8 +62,8 @@ class UserLoginView(APIView):
             )
 
             if authenticated_user is not None:
-                # Block unverified users (admins bypass this)
-                if not authenticated_user.is_admin and not authenticated_user.is_verified:
+                # not verified yet? can't log in unless they're an admin
+                if not authenticated_user.is_verified and authenticated_user.role != 'admin':
                     return Response(
                         {"error": "Email not verified. Please verify OTP."},
                         status=status.HTTP_403_FORBIDDEN
@@ -71,7 +71,7 @@ class UserLoginView(APIView):
 
                 token = get_tokens_for_user(authenticated_user)
 
-                # Return token + user info for frontend to store
+                # frontend needs all this to know who they are and where to send them
                 return Response(
                     {
                         "token": token,
@@ -92,12 +92,12 @@ class UserLoginView(APIView):
 
     
 class UserProfileView(APIView):
-    """Get/update current user's profile - handles both common and caregiver data"""
+    # get returns both basic profile + caregiver-specific stuff if they're a caregiver
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request):
-        # Get or create common profile
+        # create if missing (defensive)
         try:
             profile = request.user.profile
         except UserProfile.DoesNotExist:
@@ -110,7 +110,7 @@ class UserProfileView(APIView):
 
         data = serializer.data
 
-        # Caregivers get extra fields + verification status
+        # caregivers get extra fields displayed on their profile
         if request.user.role == 'caregiver':
             try:
                 caregiver_profile = request.user.caregiver_profile
@@ -120,14 +120,14 @@ class UserProfileView(APIView):
             caregiver_serializer = CaregiverProfileSerializer(caregiver_profile)
             data['caregiver_details'] = caregiver_serializer.data
             
-            # Include verification status so frontend can show badges
+            # frontend shows a badge if they're verified
             try:
                 verification = request.user.verification
                 data['verification_status'] = verification.verification_status
             except CaregiverVerification.DoesNotExist:
                 data['verification_status'] = None
 
-            # Include rating summary for caregiver profile
+            # showing their rating on the profile card
             agg = Review.objects.filter(caregiver=request.user).aggregate(
                 avg_rating=Avg("rating"),
                 review_count=Count("id"),
@@ -138,7 +138,7 @@ class UserProfileView(APIView):
         return Response(data, status=200)
 
     def patch(self, request):
-        """Update common profile fields (phone, address, image)"""
+        # updates phone, address, profile picture
         try:
             profile = request.user.profile
         except UserProfile.DoesNotExist:
@@ -160,12 +160,12 @@ class UserProfileView(APIView):
         return Response(serializer.errors, status=400)
 
     def put(self, request):
-        # PUT works same as PATCH for convenience
+        # PATCH and PUT do the same thing for convenience
         return self.patch(request)
 
 
 class CaregiverProfileView(APIView):
-    """Update caregiver-specific fields - services, bio, credentials"""
+    # for updating the extra fields (services, hourly rate, training info)
     def get_object(self, request):
         if request.user.role != 'caregiver':
             return None
@@ -175,7 +175,7 @@ class CaregiverProfileView(APIView):
             return CaregiverProfile.objects.create(user=request.user)
 
     def patch(self, request):
-        """Update caregiver-specific profile fields"""
+        # only handles caregiver-specific stuff
         profile = self.get_object(request)
         if not profile:
             return Response({"error": "Only caregivers can update this profile"}, status=403)
@@ -197,7 +197,8 @@ class CaregiverProfileView(APIView):
 
 
 class AdminUserProfileView(APIView):
-    """Authenticated users can view any user's profile (for public caregiver profiles)"""
+    # allows admins (and public users) to view ANY caregiver's profile
+    permission_classes = [IsAuthenticated]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):

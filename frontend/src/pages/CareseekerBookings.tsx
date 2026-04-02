@@ -1,11 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
 import Navbar from "../components/Navbar";
 import BookingCard, { type Booking } from "../components/BookingCard";
-import { bookingsApi, paymentsApi, reviewsApi } from "../api/axios";
+import ComplaintModal from "../components/ComplaintModal";
+import { bookingsApi, paymentsApi, reviewsApi, complaintsApi } from "../api/axios";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+
+interface UserComplaint {
+  id: number;
+  booking_id: number;
+  status: string;
+}
 
 const CareseekerBookings = () => {
   const [bookings, setBookings] = useState<Booking[] | undefined>(undefined);
+  const [userComplaints, setUserComplaints] = useState<UserComplaint[]>([]);
   const [loading, setLoading] = useState(true);
   const [paymentLoading, setPaymentLoading] = useState<number | null>(null);
   const [payClicked, setPayClicked] = useState<number | null>(null);
@@ -16,6 +24,12 @@ const CareseekerBookings = () => {
   const [ratingHover, setRatingHover] = useState<number>(0);
   const [ratingComment, setRatingComment] = useState<string>("");
   const [ratingSubmitting, setRatingSubmitting] = useState(false);
+  const [complaintModal, setComplaintModal] = useState({
+    isOpen: false,
+    bookingId: 0,
+    caregiverName: "",
+    status: "",
+  });
 
   const [bookingStatusFilter, setBookingStatusFilter] = useState<string>("all");
   const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("all");
@@ -23,6 +37,7 @@ const CareseekerBookings = () => {
 
   useEffect(() => {
     fetchBookings();
+    fetchUserComplaints();
   }, []);
 
   const fetchBookings = async () => {
@@ -35,6 +50,15 @@ const CareseekerBookings = () => {
       setBookings([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchUserComplaints = async () => {
+    try {
+      const res = await complaintsApi.get("my-complaints/");
+      setUserComplaints(res.data);
+    } catch (err) {
+      console.error("Failed to fetch user complaints", err);
     }
   };
 
@@ -112,6 +136,22 @@ const CareseekerBookings = () => {
     setRatingValue(0);
     setRatingHover(0);
     setRatingComment("");
+  };
+
+  const handleFileComplaint = (bookingId: number, caregiverName: string) => {
+    const booking = bookings?.find((b) => b.id === bookingId);
+    setComplaintModal({
+      isOpen: true,
+      bookingId,
+      caregiverName,
+      status: booking ? (booking.booking_status || booking.status) : "",
+    });
+  };
+
+  const hasActiveComplaint = (bookingId: number) => {
+    return userComplaints.some(
+      (c) => c.booking_id === bookingId && ["open", "investigating"].includes(c.status)
+    );
   };
 
   const confirmCompletion = async (id: number) => {
@@ -291,6 +331,8 @@ const CareseekerBookings = () => {
                       payClicked={payClicked}
                       onConfirmCompletion={confirmCompletion}
                       onRate={handleOpenRating}
+                      onFileComplaint={handleFileComplaint}
+                      hasActiveComplaint={hasActiveComplaint(b.id)}
                     />
                   ))}
                 </div>
@@ -388,6 +430,23 @@ const CareseekerBookings = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {complaintModal.isOpen && (
+          <ComplaintModal
+            isOpen={complaintModal.isOpen}
+            onClose={() => setComplaintModal({ ...complaintModal, isOpen: false })}
+            booking={{
+              id: complaintModal.bookingId,
+              caregiver_name: complaintModal.caregiverName,
+              status: complaintModal.status,
+            }}
+            onSuccess={() => {
+              alert("Your complaint has been filed successfully. We will investigate and get back to you.");
+              fetchBookings();
+              fetchUserComplaints();
+            }}
+          />
         )}
       </div>
     </div>

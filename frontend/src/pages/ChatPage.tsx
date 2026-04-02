@@ -1,6 +1,6 @@
 /**
- * Chat page: Real-time chat for a single conversation.
- * Fetches message history via REST, connects WebSocket for live updates.
+ * Single chat window: fetches old messages, connects WebSocket for real-time.
+ * Shows the other person's profile and lets you open their verification badge.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";

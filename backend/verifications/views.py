@@ -20,14 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def validate_caregiver_profile_completeness(user):
-    """
-    Validates that a caregiver has completed all required profile fields
-    before allowing document upload.
-    Returns (is_valid, missing_fields)
-    """
+    # makes sure they filled out everything before they can upload docs
+    # otherwise admins get incomplete info to verify
     missing_fields = []
 
-    # Check UserProfile fields
     try:
         profile = user.profile
         phone = profile.phone.replace(' ', '').replace('-', '') if profile.phone else ''
@@ -38,7 +34,6 @@ def validate_caregiver_profile_completeness(user):
     except UserProfile.DoesNotExist:
         missing_fields.extend(["Phone", "Address"])
 
-    # Check CaregiverProfile fields
     try:
         caregiver = user.caregiver_profile
         if not caregiver.gender or not caregiver.gender.strip():
@@ -63,12 +58,12 @@ def validate_caregiver_profile_completeness(user):
 
 
 class CaregiverDocumentUploadView(APIView):
-    """Caregivers upload citizenship docs + certificate for verification"""
+    # caregivers upload their citizenship ID + training certificate for admin to verify
     permission_classes = [IsAuthenticated, IsCaregiver]
     parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request):
-        """Check current verification status"""
+        # returns what we currently have on file for them
         try:
             verification = CaregiverVerification.objects.get(user=request.user)
             serializer = CaregiverVerificationSerializer(verification, context={'request': request})
@@ -80,8 +75,7 @@ class CaregiverDocumentUploadView(APIView):
             )
 
     def post(self, request):
-        """Upload all verification documents at once"""
-        # Validate profile completeness before accepting documents
+        # uploads docs for admin review
         is_valid, missing_fields = validate_caregiver_profile_completeness(request.user)
         if not is_valid:
             return Response(
@@ -92,7 +86,7 @@ class CaregiverDocumentUploadView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Check if already verified
+        # can't re-verify if already approved
         try:
             existing = CaregiverVerification.objects.get(user=request.user)
             if existing.verification_status == 'approved':

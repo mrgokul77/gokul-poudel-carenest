@@ -23,10 +23,10 @@ const Login = () => {
         password,
       });
 
-      // Store tokens via context
+      // saves tokens + user info via context
       login(res.data.token, res.data.role, res.data.user_id);
 
-      // Role-based navigation
+      // sends them to the right dashboard based on their role
       const role = res.data.role;
 
       if (role === "careseeker") {
