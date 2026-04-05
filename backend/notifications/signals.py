@@ -8,8 +8,22 @@ from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
 from .models import Notification
+from .utils import send_push_notification
 from bookings.models import Booking
 from payments.models import Payment
+
+
+def _get_user_push_token(user):
+    """Resolve the most recent saved push token for a user."""
+    if not user:
+        return None
+
+    record = getattr(user, "push_token_record", None)
+    if record and record.token:
+        return record.token
+
+    token = getattr(user, "push_token", None)
+    return token or None
 
 
 def _broadcast_notification_to_user(user_id, notification_data):
@@ -47,6 +61,15 @@ def _create_and_broadcast(user, ntype, title, message, related_id):
     from .serializers import NotificationSerializer
     _broadcast_notification_to_user(user.id, NotificationSerializer(n).data)
 
+    push_token = _get_user_push_token(user)
+    if push_token:
+        send_push_notification(
+            token=push_token,
+            title=title,
+            body=message,
+            data={"type": ntype, "related_id": related_id},
+        )
+
 
 @receiver(post_save, sender=Booking)
 def on_booking_change(instance, created, **kwargs):
@@ -71,7 +94,7 @@ def on_booking_change(instance, created, **kwargs):
             instance.family,
             "booking",
             "Booking accepted",
-            f"Caregiver {instance.caregiver.username} accepted your booking.",
+            "Caregiver accepted your booking",
             instance.id,
         )
     elif instance.status == "rejected":
@@ -79,7 +102,15 @@ def on_booking_change(instance, created, **kwargs):
             instance.family,
             "booking",
             "Booking declined",
-            f"Caregiver {instance.caregiver.username} declined your booking request.",
+            "Caregiver rejected your booking",
+            instance.id,
+        )
+    elif instance.status == "in_progress":
+        _create_and_broadcast(
+            instance.family,
+            "booking",
+            "Service started",
+            f"Caregiver {instance.caregiver.username} checked in for your booking.",
             instance.id,
         )
     elif instance.status == "completion_requested":
@@ -91,6 +122,13 @@ def on_booking_change(instance, created, **kwargs):
             instance.id,
         )
     elif instance.status == "completed":
+        _create_and_broadcast(
+            instance.family,
+            "booking",
+            "Booking completed",
+            f"Caregiver {instance.caregiver.username} completed your booking.",
+            instance.id,
+        )
         _create_and_broadcast(
             instance.caregiver,
             "booking",

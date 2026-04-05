@@ -48,6 +48,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     # tracking who's online for chat - real-time updates via WebSocket
     is_online = models.BooleanField(default=False)
     last_seen = models.DateTimeField(null=True, blank=True)
+    push_token = models.CharField(max_length=255, blank=True, null=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -101,3 +102,74 @@ class CaregiverProfile(models.Model):
 
     def __str__(self):
         return f"Caregiver Data: {self.user.email}"
+
+
+class Emergency(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_RESOLVED = "resolved"
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "Pending"),
+        (STATUS_IN_PROGRESS, "In Progress"),
+        (STATUS_RESOLVED, "Resolved"),
+    )
+
+    careseeker = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="emergencies",
+    )
+    booking = models.ForeignKey(
+        "bookings.Booking",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="emergencies",
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    admin_note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Emergency #{self.id} - {self.careseeker.email} - {self.status}"
+
+
+class UserActivity(models.Model):
+    ACTIVITY_MOBILE_LOGIN = "mobile_login"
+    ACTIVITY_EMERGENCY_TRIGGERED = "emergency_triggered"
+    ACTIVITY_BOOKING_VIEWED = "booking_viewed"
+    ACTIVITY_NOTIFICATION_RECEIVED = "notification_received"
+    ACTIVITY_BOOKING_COMPLETED = "booking_completed"
+
+    ACTIVITY_CHOICES = (
+        (ACTIVITY_MOBILE_LOGIN, "Logged in from mobile"),
+        (ACTIVITY_EMERGENCY_TRIGGERED, "Emergency triggered"),
+        (ACTIVITY_BOOKING_VIEWED, "Viewed booking"),
+        (ACTIVITY_NOTIFICATION_RECEIVED, "Notification received"),
+        (ACTIVITY_BOOKING_COMPLETED, "Booking completed"),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="activities",
+    )
+    activity_type = models.CharField(max_length=40, choices=ACTIVITY_CHOICES)
+    booking = models.ForeignKey(
+        "bookings.Booking",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="activities",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.activity_type}"

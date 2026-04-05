@@ -1,6 +1,7 @@
 
 from django.contrib import admin
 from django.urls import path,include
+from accounts.views import EmergencyListCreateView, EmergencyDetailView, EmergencyPendingCountView, EmergencyNotifyCaregiverView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -15,6 +16,10 @@ urlpatterns = [
     path('api/chat/', include('chat.urls')),            # chat REST + WebSocket
     path('api/announcements/', include('announcements.urls')),
     path('api/complaints/', include('complaints.urls')),
+    path('api/emergency/', EmergencyListCreateView.as_view(), name='emergency-list-create'),
+    path('api/emergency/<int:pk>/', EmergencyDetailView.as_view(), name='emergency-detail'),
+    path('api/emergency/<int:pk>/notify-caregiver/', EmergencyNotifyCaregiverView.as_view(), name='emergency-notify-caregiver'),
+    path('api/emergency/pending-count/', EmergencyPendingCountView.as_view(), name='emergency-pending-count'),
 ]
 
 # Serve uploaded files (profile images, verification docs) in development

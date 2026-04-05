@@ -12,7 +12,7 @@ export interface Notification {
   created_at: string;
 }
 
-const WS_BASE = "ws://127.0.0.1:8000";
+const WS_BASE = "ws://localhost:8000";
 
 // dedupes by ID so we don't show the same notification twice
 function dedupeNotificationsById(items: Notification[]): Notification[] {
@@ -92,7 +92,7 @@ export function useNotifications(enabled: boolean) {
   }, [fetchNotifications, fetchUnreadCount]);
 
   const openNotificationWs = useCallback(() => {
-    const token = localStorage.getItem("access");
+    const token = localStorage.getItem("access_token") || localStorage.getItem("access");
     if (!token) return;
 
     if (wsRef.current) {

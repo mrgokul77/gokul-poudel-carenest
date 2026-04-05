@@ -275,13 +275,6 @@ const BookingDetailsModal = ({
   );
 };
 
-const statusBadgeStyles: Record<string, string> = {
-  open: "bg-red-100 text-red-800",
-  investigating: "bg-yellow-100 text-yellow-800",
-  resolved: "bg-green-100 text-green-800",
-  dismissed: "bg-gray-100 text-gray-800",
-};
-
 const statusLabels: Record<string, string> = {
   open: "Open",
   investigating: "Investigating",
@@ -478,35 +471,31 @@ const AdminComplaints = () => {
                   >
                     <div className="flex justify-between items-start">
                       <h4 className="font-bold text-gray-900">{c.category}</h4>
-                      <span
-                        className={`inline-flex px-2.5 py-1 text-xs font-medium rounded-full ${
-                          statusBadgeStyles[c.status]
-                        }`}
-                      >
-                        {statusLabels[c.status]}
-                      </span>
-                    </div>
-
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-500">
-                        Filed: {formatDate(c.created_at)}
-                      </p>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setSelectedComplaintId(c.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Manage
+                        </button>
+                        <button
+                          onClick={() => setBookingModal({ open: true, bookingId: c.booking_id })}
+                          className="text-xs font-semibold text-green-600 hover:text-green-700 transition-colors whitespace-nowrap"
+                        >
+                          View Booking
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-4 space-y-1">
                       <p className="text-sm">
+                        <span className="text-gray-600 font-medium">Filed:</span>{" "}
+                        <span className="text-gray-900">{formatDate(c.created_at)}</span>
+                      </p>
+                      <p className="text-sm">
                         <span className="text-gray-600 font-medium">Reporter:</span>{" "}
                         <span className="text-gray-900">{c.reporter_username}</span>
-                      </p>
-                      <p className="text-sm">
-                        <span className="text-gray-600 font-medium">Caregiver:</span>{" "}
-                        <span className="text-gray-900">{c.caregiver_name}</span>
-                      </p>
-                      <p className="text-sm">
-                        <span className="text-gray-600 font-medium">Booking Date:</span>{" "}
-                        <span className="text-gray-900">
-                          {c.booking_date ? formatDate(c.booking_date) : "N/A"}
-                        </span>
                       </p>
                     </div>
 
@@ -516,21 +505,6 @@ const AdminComplaints = () => {
                         : c.description}
                     </p>
 
-                    <div className="mt-5 pt-4 border-t border-green-100 flex items-center justify-between gap-2">
-                      <button
-                        onClick={() => setBookingModal({ open: true, bookingId: c.booking_id })}
-                        className="text-xs font-semibold text-green-600 hover:text-green-700 transition-colors whitespace-nowrap"
-                      >
-                        View Booking
-                      </button>
-                      <button
-                        onClick={() => setSelectedComplaintId(c.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        Manage
-                      </button>
-                    </div>
                   </div>
                 ))}
               </div>

@@ -1,5 +1,8 @@
 from rest_framework import serializers
+from datetime import timedelta
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from .models import Booking
 from accounts.models import User, CaregiverProfile
 from verifications.models import CaregiverVerification
@@ -254,6 +257,9 @@ class BookingSerializer(serializers.ModelSerializer):
             "longitude",
             "additional_info",
             "status",
+            "check_in_time",
+            "check_out_time",
+            "proof_image",
             "booking_status",
             "payment_status",
             "verification_status",
@@ -325,3 +331,68 @@ class BookingSerializer(serializers.ModelSerializer):
             return verification.verification_status
         except CaregiverVerification.DoesNotExist:
             return None
+
+
+class BookingStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["accepted", "rejected", "in_progress", "completed"])
+    timestamp = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        booking = self.context["booking"]
+        requested_status = attrs["status"]
+
+        allowed_next_statuses = {
+            "pending": ["accepted", "rejected"],
+            "accepted": ["in_progress"],
+            "in_progress": ["completed"],
+        }
+
+        if requested_status not in allowed_next_statuses.get(booking.status, []):
+            raise serializers.ValidationError({
+                "status": f"Invalid status change from {booking.status} to {requested_status}."
+            })
+
+        raw_timestamp = attrs.get("timestamp")
+        parsed_timestamp = timezone.now()
+
+        if raw_timestamp:
+            parsed_timestamp = parse_datetime(raw_timestamp)
+            if parsed_timestamp is None:
+                raise serializers.ValidationError({"timestamp": "Invalid ISO datetime."})
+            if timezone.is_naive(parsed_timestamp):
+                parsed_timestamp = timezone.make_aware(parsed_timestamp, timezone.get_current_timezone())
+
+        now = timezone.localtime()
+
+        if requested_status == "accepted" and booking.status != "pending":
+            raise serializers.ValidationError({"status": "Only pending bookings can be accepted."})
+
+        if requested_status == "in_progress":
+            if now < booking.start_datetime:
+                raise serializers.ValidationError({
+                    "status": "Cannot check in before booked time."
+                })
+
+        if requested_status == "completed":
+            if booking.status != "in_progress":
+                raise serializers.ValidationError({
+                    "status": "Cannot check out when booking is not in_progress."
+                })
+
+            if not booking.check_in_time:
+                raise serializers.ValidationError({
+                    "status": "Check in time is missing."
+                })
+
+            min_checkout_time = booking.check_in_time + timedelta(hours=booking.duration_hours)
+            if now < min_checkout_time:
+                raise serializers.ValidationError({
+                    "status": "You cannot check out before the service duration is complete"
+                })
+
+        attrs["parsed_timestamp"] = parsed_timestamp
+        return attrs
+
+
+class BookingProofUploadSerializer(serializers.Serializer):
+    proof_image = serializers.ImageField(required=True)

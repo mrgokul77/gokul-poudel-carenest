@@ -15,8 +15,9 @@ import CaregiverUpload from "./pages/CaregiverUpload";
 import AdminVerify from "./pages/AdminVerify";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import AdminComplaints from "./pages/AdminComplaints";
-import AdminPlaceholderPage from "./pages/AdminPlaceholderPage";
 import AdminSendAnnouncementPage from "./pages/AdminSendAnnouncementPage";
+import AdminBookingsPage from "./pages/AdminBookingsPage";
+import EmergencyPage from "./pages/EmergencyPage";
 import CaregiverBookingRequests from "./pages/CaregiverBookingRequests";
 import EarningsHistoryPage from "./pages/EarningsHistoryPage";
 import ReviewsReceivedPage from "./pages/ReviewsReceivedPage";
@@ -130,6 +131,14 @@ function App() {
           }
         />
         <Route
+          path="/admin/bookings"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminBookingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/announcements"
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
@@ -138,10 +147,18 @@ function App() {
           }
         />
         <Route
+          path="/admin/emergency-activity"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <EmergencyPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/reports"
           element={
             <ProtectedRoute allowedRoles={["admin"]}>
-              <AdminPlaceholderPage title="Reports" />
+              <EmergencyPage />
             </ProtectedRoute>
           }
         />

@@ -37,8 +37,8 @@ const formatDateDivider = (iso: string): string => {
 };
 
 const getWebSocketUrl = (conversationId: number): string => {
-  const token = localStorage.getItem("access");
-  const base = "ws://127.0.0.1:8000";
+  const token = localStorage.getItem("access_token") || localStorage.getItem("access");
+  const base = "ws://localhost:8000";
   return `${base}/ws/chat/${conversationId}/?token=${encodeURIComponent(token || "")}`;
 };
 

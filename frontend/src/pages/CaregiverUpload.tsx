@@ -38,10 +38,10 @@ const CaregiverUpload = () => {
   const fetchStatus = async () => {
     try {
       const res = await axios.get(
-        "http://127.0.0.1:8000/api/verifications/status/",
+        "http://localhost:8000/api/verifications/status/",
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("access")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token") || localStorage.getItem("access")}`,
           },
         }
       );
@@ -126,12 +126,12 @@ const CaregiverUpload = () => {
       formData.append("certificate", certificate);
       
       const response = await axios.post(
-        "http://127.0.0.1:8000/api/verifications/upload-document/",
+        "http://localhost:8000/api/verifications/upload-document/",
         formData,
         {
           headers: {
             "Content-Type": "multipart/form-data",
-            Authorization: `Bearer ${localStorage.getItem("access")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token") || localStorage.getItem("access")}`,
           },
         }
       );

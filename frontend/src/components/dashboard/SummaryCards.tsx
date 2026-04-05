@@ -51,7 +51,7 @@ const SummaryCards = ({
             <div
               className={`w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center ${card.color}`}
             >
-              <card.icon className="w-5 h-5" />
+                  <card.icon className="w-7 h-7" />
             </div>
             <div>
               <p className="text-2xl font-bold text-gray-900">{card.value}</p>

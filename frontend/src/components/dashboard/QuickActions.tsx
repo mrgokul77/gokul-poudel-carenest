@@ -1,15 +1,14 @@
 import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
-  CalendarPlus,
   Star,
   CreditCard,
   Receipt,
   Bell,
   MessageSquare,
   Megaphone,
-  BarChart3,
   AlertCircle,
+  Siren,
 } from "lucide-react";
 import { useNotificationsContext } from "../../context/NotificationsContext";
 
@@ -124,11 +123,11 @@ const QuickActions = ({
       icon: Megaphone,
     },
     {
-      key: "reports",
+      key: "emergency-activity",
       type: "link",
-      to: "/admin/reports",
-      label: "View Reports",
-      icon: BarChart3,
+      to: "/admin/emergency-activity",
+      label: "Emergency & Activity",
+      icon: Siren,
     },
   ];
 

@@ -7,7 +7,7 @@ import type { User } from "../components/admin/UsersTable";
 import { Search, ChevronLeft, ChevronRight, AlertCircle, CheckCircle } from "lucide-react";
 import { adminApi } from "../api/axios";
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = "http://localhost:8000";
 
 /** Resolve profile_image to full URL (backend may return relative path) */
 const resolveProfileImageUrl = (url: string | null | undefined): string | null => {

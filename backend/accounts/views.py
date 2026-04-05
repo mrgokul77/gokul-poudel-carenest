@@ -8,12 +8,17 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.parsers import MultiPartParser, FormParser
 from .models import *
+from notifications.models import PushToken
 from verifications.models import CaregiverVerification
 from verifications.permissions import IsCaregiver
 from bookings.permissions import IsCareSeeker
 from reviews.models import Review
 from django.db.models import Avg, Count, Sum
 from django.utils import timezone
+from django.core.mail import send_mail
+from django.conf import settings
+from bookings.models import Booking
+from notifications.utils import send_push_notification
 
 
 def get_tokens_for_user(user):
@@ -24,6 +29,55 @@ def get_tokens_for_user(user):
         'refresh': str(refresh),
         'access': str(refresh.access_token),
     }
+
+
+def _is_mobile_request(request):
+    source = (request.headers.get("X-Client-Source") or request.data.get("client_source") or "").strip().lower()
+    if source == "mobile":
+        return True
+    user_agent = (request.headers.get("User-Agent") or "").lower()
+    return "expo" in user_agent or "react native" in user_agent or "mobile" in user_agent
+
+
+def _record_user_activity(user, activity_type, booking=None):
+    if not user:
+        return None
+
+    booking_obj = booking
+    if booking_obj is not None and not isinstance(booking_obj, Booking):
+        booking_obj = None
+
+    return UserActivity.objects.create(
+        user=user,
+        activity_type=activity_type,
+        booking=booking_obj,
+    )
+
+
+def _get_admin_push_tokens():
+    tokens = []
+    for admin_user in User.objects.filter(role="admin", is_active=True):
+        record = getattr(admin_user, "push_token_record", None)
+        if record and record.token:
+            tokens.append(record.token)
+            continue
+        if admin_user.push_token:
+            tokens.append(admin_user.push_token)
+    return tokens
+
+
+def _notify_admin_emergency(emergency):
+    title = "Emergency alert"
+    body = f"{emergency.careseeker.username} triggered an emergency alert."
+    payload = {
+        "type": "emergency",
+        "emergency_id": emergency.id,
+        "booking_id": emergency.booking_id,
+        "status": emergency.status,
+    }
+
+    for token in _get_admin_push_tokens():
+        send_push_notification(token, title, body, payload)
 
 
 class UserRegistrationView(APIView):
@@ -50,6 +104,7 @@ class UserLoginView(APIView):
     permission_classes = [AllowAny]
     def post(self, request):
         serializer = UserLoginSerializer(data=request.data)
+        is_mobile = _is_mobile_request(request)
 
         if serializer.is_valid(raise_exception=True):
             email = serializer.validated_data['email']
@@ -71,13 +126,18 @@ class UserLoginView(APIView):
 
                 token = get_tokens_for_user(authenticated_user)
 
+                if is_mobile:
+                    _record_user_activity(authenticated_user, UserActivity.ACTIVITY_MOBILE_LOGIN)
+
                 # frontend needs all this to know who they are and where to send them
                 return Response(
                     {
-                        "token": token,
+                        "token": token["access"],
+                        "refresh": token["refresh"],
                         "role": authenticated_user.role,
                         "email": authenticated_user.email,
                         "user_id": authenticated_user.id,
+                        "name": authenticated_user.username,
                         "message": "Login Successful"
                     },
                     status=status.HTTP_200_OK
@@ -291,6 +351,26 @@ class UserStatusView(APIView):
         })
 
 
+class SavePushTokenView(APIView):
+    """Persist the current user's device push token for backend notifications."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = SavePushTokenSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        push_token = serializer.validated_data["push_token"]
+        PushToken.objects.update_or_create(
+            user=request.user,
+            defaults={"token": push_token},
+        )
+
+        request.user.push_token = push_token
+        request.user.save(update_fields=["push_token", "updated_at"])
+
+        return Response({"message": "Push token saved successfully."}, status=status.HTTP_200_OK)
+
+
 class CaregiverDashboardSummaryView(APIView):
     """Single endpoint for caregiver dashboard summary - stats, recent bookings, profile, earnings."""
     permission_classes = [IsAuthenticated, IsCaregiver]
@@ -476,6 +556,43 @@ class CareseekerDashboardSummaryView(APIView):
         })
 
 
+class CareseekerBookingListView(APIView):
+    """List all bookings for the authenticated careseeker."""
+    permission_classes = [IsAuthenticated, IsCareSeeker]
+
+    def get(self, request):
+        from bookings.models import Booking
+        from bookings.views import expire_pending_bookings
+        from bookings.serializers import BookingSerializer
+
+        bookings = Booking.objects.filter(family=request.user).order_by("-created_at")
+        expire_pending_bookings(bookings)
+        bookings = Booking.objects.filter(family=request.user).order_by("-created_at")
+
+        serializer = BookingSerializer(bookings, many=True, context={"request": request})
+        return Response(serializer.data)
+
+
+class CareseekerBookingDetailView(APIView):
+    """Return a single booking for the authenticated careseeker."""
+    permission_classes = [IsAuthenticated, IsCareSeeker]
+
+    def get(self, request, pk):
+        from bookings.models import Booking
+        from bookings.serializers import BookingSerializer
+
+        try:
+            booking = Booking.objects.get(pk=pk, family=request.user)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if _is_mobile_request(request):
+            _record_user_activity(request.user, UserActivity.ACTIVITY_BOOKING_VIEWED, booking)
+
+        serializer = BookingSerializer(booking, context={"request": request})
+        return Response(serializer.data)
+
+
 class NotificationsView(APIView):
     """Returns notifications for the current user (careseeker or caregiver)."""
     permission_classes = [IsAuthenticated]
@@ -567,3 +684,183 @@ class NotificationsView(APIView):
         )
 
         return Response({"notifications": notifications})
+
+
+class EmergencyListCreateView(APIView):
+    """Admin lists emergencies; careseekers can create one from mobile."""
+
+    def get_permissions(self):
+        if self.request.method.lower() == "post":
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsAdminUser()]
+
+    def get(self, request):
+        emergencies = Emergency.objects.select_related(
+            "careseeker",
+            "careseeker__profile",
+            "booking",
+            "booking__caregiver",
+        ).all()
+        serializer = EmergencySerializer(emergencies, many=True, context={"request": request})
+        return Response({"emergencies": serializer.data})
+
+    def post(self, request):
+        if request.user.role != "careseeker":
+            return Response({"error": "Only careseekers can trigger an emergency"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = EmergencyCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        booking_id = serializer.validated_data.get("booking_id")
+        booking = None
+
+        if booking_id:
+            try:
+                booking = Booking.objects.get(pk=booking_id, family=request.user)
+            except Booking.DoesNotExist:
+                return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        emergency = Emergency.objects.create(
+            careseeker=request.user,
+            booking=booking,
+            status=Emergency.STATUS_PENDING,
+        )
+
+        _record_user_activity(request.user, UserActivity.ACTIVITY_EMERGENCY_TRIGGERED, booking)
+        _notify_admin_emergency(emergency)
+
+        return Response(EmergencySerializer(emergency, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+
+class EmergencyDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def patch(self, request, pk):
+        try:
+            emergency = Emergency.objects.select_related("careseeker", "careseeker__profile", "booking").get(pk=pk)
+        except Emergency.DoesNotExist:
+            return Response({"error": "Emergency not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = EmergencyUpdateSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        if "status" in serializer.validated_data:
+            emergency.status = serializer.validated_data["status"]
+
+        if "admin_note" in serializer.validated_data:
+            emergency.admin_note = serializer.validated_data["admin_note"] or ""
+
+        emergency.save()
+        return Response(EmergencySerializer(emergency, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+class EmergencyPendingCountView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request):
+        count = Emergency.objects.filter(status=Emergency.STATUS_PENDING).count()
+        return Response({"count": count}, status=status.HTTP_200_OK)
+
+
+class EmergencyNotifyCaregiverView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def _notify(self, request, pk):
+        try:
+            emergency = Emergency.objects.select_related(
+                "careseeker",
+                "careseeker__profile",
+                "booking",
+                "booking__caregiver",
+            ).get(pk=pk)
+        except Emergency.DoesNotExist:
+            return Response({"error": "Emergency not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        booking = emergency.booking
+        caregiver = booking.caregiver if booking and booking.caregiver_id else None
+        if not caregiver:
+            return Response({"error": "No caregiver assigned to this booking"}, status=status.HTTP_400_BAD_REQUEST)
+
+        caregiver_email = (caregiver.email or "").strip()
+        if not caregiver_email:
+            return Response({"error": "Caregiver email is unavailable"}, status=status.HTTP_400_BAD_REQUEST)
+
+        message_override = (request.data.get("message") or "").strip()
+        careseeker_profile = getattr(emergency.careseeker, "profile", None)
+        careseeker_phone = getattr(careseeker_profile, "phone", None) or "N/A"
+
+        subject = "⚠ Emergency Alert - Action Required | CareNest"
+        triggered_time = timezone.localtime(emergency.created_at).strftime("%b %d, %Y %I:%M %p")
+
+        body = (
+            f"Dear {caregiver.username},\n\n"
+            f"A careseeker under your care, {emergency.careseeker.username}, \n"
+            f"has triggered an emergency alert at {triggered_time}.\n\n"
+            "Please check on them immediately and contact \n"
+            "the admin if further assistance is needed.\n\n"
+            f"Booking ID: {emergency.booking_id or 'N/A'}\n"
+            f"Careseeker Phone: {careseeker_phone}\n\n"
+            "Regards,\n"
+            "CareNest Admin Team"
+        )
+
+        if message_override:
+            body = f"{body}\n\nAdmin Message:\n{message_override}"
+
+        send_mail(
+            subject,
+            body,
+            settings.EMAIL_HOST_USER,
+            [caregiver_email],
+            fail_silently=False,
+        )
+
+        return Response({"message": "Caregiver notified via email"}, status=status.HTTP_200_OK)
+
+    def post(self, request, pk):
+        return self._notify(request, pk)
+
+    def patch(self, request, pk):
+        return self._notify(request, pk)
+
+
+class UserActivityView(APIView):
+    def get_permissions(self):
+        if self.request.method.lower() == "post":
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsAdminUser()]
+
+    def get(self, request):
+        today = timezone.localdate()
+        activities = (
+            UserActivity.objects.select_related("user", "user__profile", "booking")
+            .filter(user__role="careseeker")
+            .order_by("-created_at")[:50]
+        )
+
+        summary = {
+            "total_emergencies_today": Emergency.objects.filter(created_at__date=today).count(),
+            "active_emergencies": Emergency.objects.filter(status__in=[Emergency.STATUS_PENDING, Emergency.STATUS_IN_PROGRESS]).count(),
+            "careseeker_mobile_logins_today": UserActivity.objects.filter(
+                activity_type=UserActivity.ACTIVITY_MOBILE_LOGIN,
+                created_at__date=today,
+                user__role="careseeker",
+            ).count(),
+        }
+
+        serializer = UserActivitySerializer(activities, many=True, context={"request": request})
+        return Response({"summary": summary, "activities": serializer.data}, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = UserActivityCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        booking = None
+        booking_id = serializer.validated_data.get("booking_id")
+        if booking_id:
+            try:
+                booking = Booking.objects.get(pk=booking_id)
+            except Booking.DoesNotExist:
+                return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        activity = _record_user_activity(request.user, serializer.validated_data["activity_type"], booking)
+        return Response(UserActivitySerializer(activity, context={"request": request}).data, status=status.HTTP_201_CREATED)

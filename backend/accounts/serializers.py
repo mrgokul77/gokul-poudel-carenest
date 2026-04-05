@@ -89,6 +89,16 @@ class UserLoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
 
+class SavePushTokenSerializer(serializers.Serializer):
+    push_token = serializers.CharField(max_length=255)
+
+    def validate_push_token(self, value):
+        token = value.strip()
+        if not token:
+            raise serializers.ValidationError("push_token is required")
+        return token
+
+
 class CaregiverProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaregiverProfile
@@ -227,3 +237,115 @@ class UserPasswordResetSerializer(serializers.Serializer):
             return attrs
         except Exception as e:
             raise serializers.ValidationError('Token is not valid or expired')
+
+
+class EmergencySerializer(serializers.ModelSerializer):
+    careseeker_name = serializers.CharField(source="careseeker.username", read_only=True)
+    careseeker_email = serializers.EmailField(source="careseeker.email", read_only=True)
+    careseeker_phone = serializers.SerializerMethodField()
+    careseeker_profile_image = serializers.SerializerMethodField()
+    caregiver_name = serializers.SerializerMethodField()
+    booking_id = serializers.IntegerField(source="booking.id", read_only=True)
+    booking_status = serializers.CharField(source="booking.status", read_only=True)
+
+    class Meta:
+        model = Emergency
+        fields = [
+            "id",
+            "careseeker",
+            "careseeker_name",
+            "careseeker_email",
+            "careseeker_phone",
+            "careseeker_profile_image",
+            "caregiver_name",
+            "booking",
+            "booking_id",
+            "booking_status",
+            "status",
+            "admin_note",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "careseeker",
+            "careseeker_name",
+            "careseeker_email",
+            "careseeker_phone",
+            "careseeker_profile_image",
+            "caregiver_name",
+            "booking_id",
+            "booking_status",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_careseeker_phone(self, obj):
+        profile = getattr(obj.careseeker, "profile", None)
+        return profile.phone if profile else None
+
+    def get_careseeker_profile_image(self, obj):
+        request = self.context.get("request")
+        profile = getattr(obj.careseeker, "profile", None)
+        if not profile or not profile.profile_image:
+            return None
+        url = profile.profile_image.url
+        if request and not url.startswith(("http://", "https://")):
+            return request.build_absolute_uri(url)
+        return url
+
+    def get_caregiver_name(self, obj):
+        booking = getattr(obj, "booking", None)
+        caregiver = getattr(booking, "caregiver", None) if booking else None
+        return caregiver.username if caregiver else None
+
+
+class EmergencyCreateSerializer(serializers.Serializer):
+    booking_id = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_booking_id(self, value):
+        if value in (None, ""):
+            return None
+        return value
+
+
+class EmergencyUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=["in_progress", "resolved"], required=False)
+    admin_note = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+
+class UserActivitySerializer(serializers.ModelSerializer):
+    careseeker_name = serializers.CharField(source="user.username", read_only=True)
+    careseeker_email = serializers.EmailField(source="user.email", read_only=True)
+    careseeker_profile_image = serializers.SerializerMethodField()
+    booking_id = serializers.IntegerField(source="booking.id", read_only=True)
+
+    class Meta:
+        model = UserActivity
+        fields = [
+            "id",
+            "user",
+            "careseeker_name",
+            "careseeker_email",
+            "careseeker_profile_image",
+            "activity_type",
+            "booking",
+            "booking_id",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_careseeker_profile_image(self, obj):
+        request = self.context.get("request")
+        profile = getattr(obj.user, "profile", None)
+        if not profile or not profile.profile_image:
+            return None
+        url = profile.profile_image.url
+        if request and not url.startswith(("http://", "https://")):
+            return request.build_absolute_uri(url)
+        return url
+
+
+class UserActivityCreateSerializer(serializers.Serializer):
+    activity_type = serializers.ChoiceField(choices=[choice[0] for choice in UserActivity.ACTIVITY_CHOICES])
+    booking_id = serializers.IntegerField(required=False, allow_null=True)

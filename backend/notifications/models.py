@@ -40,3 +40,19 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.type} - {self.title}"
+
+
+class PushToken(models.Model):
+    """Stores the latest device push token for a user."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="push_token_record",
+    )
+    token = models.CharField(max_length=255, unique=True)
+    platform = models.CharField(max_length=20, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username} - push token"

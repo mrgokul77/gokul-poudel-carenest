@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { AlertCircle, Clock, CheckCircle, XCircle, X } from "lucide-react";
+import { AlertCircle, X } from "lucide-react";
 import Navbar from "../../components/Navbar";
 import { complaintsApi, bookingsApi } from "../../api/axios";
 import VerifiedAvatar from "../../components/VerifiedAvatar";
@@ -314,41 +314,6 @@ const MyComplaints = () => {
   const indexOfFirst = indexOfLast - itemsPerPage;
   const currentComplaints = filteredComplaints.slice(indexOfFirst, indexOfLast);
 
-  const getStatusBadge = (status: Complaint["status"]) => {
-    switch (status) {
-      case "open":
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-            <AlertCircle className="w-3 h-3" />
-            Open
-          </span>
-        );
-      case "investigating":
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
-            <Clock className="w-3 h-3" />
-            Investigating
-          </span>
-        );
-      case "resolved":
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-            <CheckCircle className="w-3 h-3" />
-            Resolved
-          </span>
-        );
-      case "dismissed":
-        return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-            <XCircle className="w-3 h-3" />
-            Dismissed
-          </span>
-        );
-      default:
-        return null;
-    }
-  };
-
   const filterOptions = [
     { value: "all", label: "All" },
     { value: "open", label: "Open" },
@@ -463,7 +428,12 @@ const MyComplaints = () => {
                     >
                       <div className="flex justify-between items-start">
                         <h4 className="font-bold text-gray-900">{complaint.category}</h4>
-                        {getStatusBadge(complaint.status)}
+                        <button
+                          onClick={() => setBookingModal({ open: true, bookingId: complaint.booking_id })}
+                          className="text-xs font-semibold text-green-600 hover:text-green-700 transition-colors whitespace-nowrap"
+                        >
+                          View Booking
+                        </button>
                       </div>
 
 
@@ -473,17 +443,7 @@ const MyComplaints = () => {
                           <span className="text-gray-900">{formatDate(complaint.created_at)}</span>
                         </p>
 
-                        <p className="text-sm">
-                          <span className="text-gray-600 font-medium">Booking Date:</span>{" "}
-                          <span className="text-gray-900">
-                            {complaint.booking_date ? formatDate(complaint.booking_date) : "N/A"}
-                          </span>
-                        </p>
 
-                        <p className="text-sm">
-                          <span className="text-gray-600 font-medium">Caregiver:</span>{" "}
-                          <span className="text-gray-900">{complaint.caregiver_name}</span>
-                        </p>
                       </div>
 
                       <p className="text-sm text-gray-700 mt-4 leading-relaxed italic border-l-2 border-gray-200 pl-3">
@@ -494,21 +454,16 @@ const MyComplaints = () => {
 
                       <div className="mt-5 pt-4 border-t border-green-100 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <AlertCircle className="w-4 h-4 text-green-600" />
                           <p className="text-xs text-green-700 font-medium italic">
-                            {complaint.status === "resolved"
+                            {complaint.status === "open"
+                              ? "Your complaint is currently open and awaiting review."
+                              : complaint.status === "investigating"
+                              ? "Your complaint is being investigated by our team."
+                              : complaint.status === "resolved"
                               ? "This complaint has been resolved by our admin team."
-                              : complaint.status === "dismissed"
-                              ? "This complaint has been dismissed by our admin team."
-                              : "Your complaint is currently under review by our admin team."}
+                              : "This complaint has been dismissed."}
                           </p>
                         </div>
-                        <button
-                          onClick={() => setBookingModal({ open: true, bookingId: complaint.booking_id })}
-                          className="text-xs font-semibold text-green-600 hover:text-green-700 transition-colors whitespace-nowrap"
-                        >
-                          View Booking
-                        </button>
                       </div>
                     </li>
                   ))}

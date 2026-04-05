@@ -4,7 +4,34 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from "axios";
 
-const REFRESH_URL = "http://127.0.0.1:8000/api/user/token/refresh/";
+const API_BASE_URL = "http://localhost:8000/api";
+const REFRESH_URL = `${API_BASE_URL}/user/token/refresh/`;
+const ACCESS_TOKEN_KEY = "access_token";
+const REFRESH_TOKEN_KEY = "refresh_token";
+const LEGACY_ACCESS_TOKEN_KEY = "access";
+const LEGACY_REFRESH_TOKEN_KEY = "refresh";
+
+function getAccessToken() {
+  return localStorage.getItem(ACCESS_TOKEN_KEY) || localStorage.getItem(LEGACY_ACCESS_TOKEN_KEY);
+}
+
+function getRefreshToken() {
+  return localStorage.getItem(REFRESH_TOKEN_KEY) || localStorage.getItem(LEGACY_REFRESH_TOKEN_KEY);
+}
+
+function saveTokens(access: string, refresh: string) {
+  localStorage.setItem(ACCESS_TOKEN_KEY, access);
+  localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+  localStorage.setItem(LEGACY_ACCESS_TOKEN_KEY, access);
+  localStorage.setItem(LEGACY_REFRESH_TOKEN_KEY, refresh);
+}
+
+function clearTokens() {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_REFRESH_TOKEN_KEY);
+}
 
 type TokenRefreshListener = () => void;
 const tokenRefreshListeners: TokenRefreshListener[] = [];
@@ -39,13 +66,14 @@ async function performTokenRefresh(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
-      const refresh = localStorage.getItem("refresh");
+      const refresh = getRefreshToken();
       if (!refresh) return null;
       const { data } = await axios.post<{ access: string }>(REFRESH_URL, {
         refresh,
       });
       if (data?.access) {
-        localStorage.setItem("access", data.access);
+        const currentRefresh = refresh || "";
+        saveTokens(data.access, currentRefresh);
         notifyAccessTokenRefreshed();
         return data.access;
       }
@@ -54,8 +82,7 @@ async function performTokenRefresh(): Promise<string | null> {
       if (import.meta.env.DEV) {
         console.warn("Token refresh failed:", e);
       }
-      localStorage.removeItem("access");
-      localStorage.removeItem("refresh");
+      clearTokens();
       return null;
     } finally {
       refreshPromise = null;
@@ -104,12 +131,12 @@ function attach401Refresh(instance: AxiosInstance) {
 
 // Main API instance for user/auth endpoints
 const api = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/user/",
+  baseURL: `${API_BASE_URL}/user/`,
 });
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
 
     const publicEndpoints = [
       "/login/",
@@ -132,12 +159,12 @@ api.interceptors.request.use(
 
 // Separate instance for booking endpoints
 export const bookingsApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/bookings/",
+  baseURL: `${API_BASE_URL}/bookings/`,
 });
 
 bookingsApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -148,7 +175,7 @@ bookingsApi.interceptors.request.use(
 
 // Separate instance for payment endpoints
 export const paymentsApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/payments/",
+  baseURL: `${API_BASE_URL}/payments/`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -156,7 +183,7 @@ export const paymentsApi = axios.create({
 
 paymentsApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -167,7 +194,7 @@ paymentsApi.interceptors.request.use(
 
 // Separate instance for chat endpoints
 export const chatApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/chat/",
+  baseURL: `${API_BASE_URL}/chat/`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -175,7 +202,7 @@ export const chatApi = axios.create({
 
 chatApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -186,12 +213,12 @@ chatApi.interceptors.request.use(
 
 // Separate instance for caregiver dashboard
 export const caregiverApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/caregiver/",
+  baseURL: `${API_BASE_URL}/caregiver/`,
 });
 
 caregiverApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -202,12 +229,12 @@ caregiverApi.interceptors.request.use(
 
 // Separate instance for careseeker dashboard
 export const careseekerApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/careseeker/",
+  baseURL: `${API_BASE_URL}/careseeker/`,
 });
 
 careseekerApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -218,7 +245,7 @@ careseekerApi.interceptors.request.use(
 
 // Separate instance for admin user management
 export const adminApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/admin/",
+  baseURL: `${API_BASE_URL}/admin/`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -226,7 +253,26 @@ export const adminApi = axios.create({
 
 adminApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Separate instance for emergency management endpoints
+export const emergencyApi = axios.create({
+  baseURL: `${API_BASE_URL}/emergency/`,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+emergencyApi.interceptors.request.use(
+  (config) => {
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -237,7 +283,7 @@ adminApi.interceptors.request.use(
 
 // Separate instance for review endpoints
 export const reviewsApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/reviews/",
+  baseURL: `${API_BASE_URL}/reviews/`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -245,7 +291,7 @@ export const reviewsApi = axios.create({
 
 reviewsApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -256,7 +302,7 @@ reviewsApi.interceptors.request.use(
 
 // Public list for careseekers/caregivers — active announcements
 export const announcementsApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/announcements/",
+  baseURL: `${API_BASE_URL}/announcements/`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -264,7 +310,7 @@ export const announcementsApi = axios.create({
 
 announcementsApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -275,7 +321,7 @@ announcementsApi.interceptors.request.use(
 
 // Separate instance for complaint endpoints
 export const complaintsApi = axios.create({
-  baseURL: "http://127.0.0.1:8000/api/complaints/",
+  baseURL: `${API_BASE_URL}/complaints/`,
   headers: {
     "Content-Type": "application/json",
   },
@@ -283,7 +329,7 @@ export const complaintsApi = axios.create({
 
 complaintsApi.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("access");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -300,6 +346,7 @@ const clientsWithRefresh: AxiosInstance[] = [
   caregiverApi,
   careseekerApi,
   adminApi,
+  emergencyApi,
   reviewsApi,
   announcementsApi,
   complaintsApi,

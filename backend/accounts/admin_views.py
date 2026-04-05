@@ -4,6 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from django.shortcuts import get_object_or_404
 
 from bookings.models import Booking
 from verifications.models import CaregiverVerification
@@ -103,12 +104,19 @@ class AdminDashboardSummaryView(APIView):
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     def get(self, request):
-        recent_qs = Booking.objects.select_related("family", "caregiver").order_by("-created_at")[:5]
+        recent_qs = Booking.objects.select_related("family", "caregiver").order_by(
+            "-date",
+            "-start_time",
+            "-created_at",
+        )[:5]
         recent_bookings = [
             {
                 "id": b.id,
                 "care_seeker_name": (b.family.username if b.family_id else None) or "—",
                 "caregiver_name": (b.caregiver.username if b.caregiver_id else None) or "—",
+                "date": b.date,
+                "start_time": b.start_time,
+                "duration_hours": b.duration_hours,
                 "status": b.status,
             }
             for b in recent_qs
@@ -149,3 +157,74 @@ class AdminDashboardSummaryView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+def _serialize_booking_for_admin(booking):
+    return {
+        "id": booking.id,
+        "care_seeker_name": (booking.family.username if booking.family_id else None) or "—",
+        "caregiver_name": (booking.caregiver.username if booking.caregiver_id else None) or "—",
+        "service_types": booking.service_types or [],
+        "person_name": booking.person_name,
+        "person_age": booking.person_age,
+        "date": booking.date,
+        "start_time": booking.start_time,
+        "duration_hours": booking.duration_hours,
+        "total_amount": booking.total_amount,
+        "emergency_contact_phone": booking.emergency_contact_phone,
+        "service_address": booking.service_address,
+        "additional_info": booking.additional_info,
+        "status": booking.status,
+        "created_at": booking.created_at,
+    }
+
+
+class AdminBookingListView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request):
+        bookings = Booking.objects.select_related("family", "caregiver").order_by("-created_at")
+        data = [_serialize_booking_for_admin(b) for b in bookings]
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class AdminBookingDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    ALLOWED_STATUSES = {
+        "pending",
+        "accepted",
+        "completion_requested",
+        "completed",
+        "rejected",
+        "expired",
+    }
+
+    def get(self, request, pk):
+        booking = get_object_or_404(
+            Booking.objects.select_related("family", "caregiver"),
+            pk=pk,
+        )
+        return Response(_serialize_booking_for_admin(booking), status=status.HTTP_200_OK)
+
+    def patch(self, request, pk):
+        booking = get_object_or_404(
+            Booking.objects.select_related("family", "caregiver"),
+            pk=pk,
+        )
+        new_status = request.data.get("status")
+
+        if new_status not in self.ALLOWED_STATUSES:
+            return Response(
+                {
+                    "error": (
+                        "Invalid status. Must be one of: pending, accepted, "
+                        "completion_requested, completed, rejected, expired"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking.status = new_status
+        booking.save(update_fields=["status"])
+        return Response(_serialize_booking_for_admin(booking), status=status.HTTP_200_OK)

@@ -72,10 +72,10 @@ const AdminVerify = () => {
     setLoading(true);
     try {
       const res = await axios.get(
-        "http://127.0.0.1:8000/api/verifications/admin/list/?all=true",
+        "http://localhost:8000/api/verifications/admin/list/?all=true",
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("access")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token") || localStorage.getItem("access")}`,
           },
         },
       );
@@ -101,11 +101,11 @@ const AdminVerify = () => {
     setProcessingId(request.id);
     try {
       await axios.put(
-        `http://127.0.0.1:8000/api/verifications/admin/${request.id}/verify/`,
+        `http://localhost:8000/api/verifications/admin/${request.id}/verify/`,
         { verification_status: "approved" },
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("access")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token") || localStorage.getItem("access")}`,
           },
         },
       );
@@ -123,14 +123,14 @@ const AdminVerify = () => {
     setProcessingId(selectedRequest.id);
     try {
       await axios.put(
-        `http://127.0.0.1:8000/api/verifications/admin/${selectedRequest.id}/verify/`,
+        `http://localhost:8000/api/verifications/admin/${selectedRequest.id}/verify/`,
         {
           verification_status: "rejected",
           rejection_reason: rejectionReason,
         },
         {
           headers: {
-            Authorization: `Bearer ${localStorage.getItem("access")}`,
+            Authorization: `Bearer ${localStorage.getItem("access_token") || localStorage.getItem("access")}`,
           },
         },
       );

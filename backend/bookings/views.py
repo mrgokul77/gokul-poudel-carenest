@@ -2,16 +2,31 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from .permissions import IsCareSeeker
 from django.utils import timezone
 from django.conf import settings
 from datetime import timedelta
-from accounts.models import User, CaregiverProfile
+from accounts.models import User, CaregiverProfile, UserActivity
 from verifications.models import CaregiverVerification
 from .models import Booking
-from .serializers import CaregiverListSerializer, BookingCreateSerializer, BookingSerializer
+from .serializers import (
+    CaregiverListSerializer,
+    BookingCreateSerializer,
+    BookingSerializer,
+    BookingStatusUpdateSerializer,
+    BookingProofUploadSerializer,
+)
 from .permissions import IsCareSeeker
 from verifications.permissions import IsCaregiver
+
+
+def _is_mobile_request(request):
+    source = (request.headers.get("X-Client-Source") or "").strip().lower()
+    if source == "mobile":
+        return True
+    user_agent = (request.headers.get("User-Agent") or "").lower()
+    return "expo" in user_agent or "react native" in user_agent or "mobile" in user_agent
 
 
 PENDING_RESPONSE_WINDOW_MINUTES = 90
@@ -232,6 +247,7 @@ class BookingMarkServiceCompleteView(APIView):
 
         booking.status = "completion_requested"
         booking.save()
+
         serializer = BookingSerializer(booking, context={"request": request})
         return Response(serializer.data)
 
@@ -257,6 +273,14 @@ class BookingConfirmCompletionView(APIView):
 
         booking.status = "completed"
         booking.save()
+
+        if _is_mobile_request(request):
+            UserActivity.objects.create(
+                user=request.user,
+                activity_type=UserActivity.ACTIVITY_BOOKING_COMPLETED,
+                booking=booking,
+            )
+
         serializer = BookingSerializer(booking, context={"request": request})
         return Response(serializer.data)
 
@@ -316,3 +340,79 @@ class BookingRespondView(APIView):
         booking.status = new_status
         booking.save()
         return Response(BookingSerializer(booking, context={"request": request}).data)
+
+
+class AssignedBookingsView(APIView):
+    """Return caregiver's assigned bookings for mobile dashboard."""
+    permission_classes = [IsAuthenticated, IsCaregiver]
+
+    def get(self, request):
+        bookings = Booking.objects.filter(caregiver=request.user).order_by("-created_at")
+        serializer = BookingSerializer(bookings, many=True, context={"request": request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class BookingUpdateStatusView(APIView):
+    """Caregiver booking lifecycle updates with strict order validation."""
+    permission_classes = [IsAuthenticated, IsCaregiver]
+
+    def patch(self, request, pk):
+        try:
+            booking = Booking.objects.get(pk=pk, caregiver=request.user)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = BookingStatusUpdateSerializer(data=request.data, context={"booking": booking})
+        serializer.is_valid(raise_exception=True)
+
+        requested_status = serializer.validated_data["status"]
+        event_time = serializer.validated_data["parsed_timestamp"]
+
+        if requested_status == "accepted":
+            booking.status = "accepted"
+        elif requested_status == "rejected":
+            booking.status = "rejected"
+        elif requested_status == "in_progress":
+            booking.status = "in_progress"
+            booking.check_in_time = event_time
+            booking.check_out_time = None
+        elif requested_status == "completed":
+            booking.status = "completed"
+            booking.check_out_time = event_time
+
+        booking.save()
+
+        if requested_status == "completed" and _is_mobile_request(request):
+            UserActivity.objects.create(
+                user=request.user,
+                activity_type=UserActivity.ACTIVITY_BOOKING_COMPLETED,
+                booking=booking,
+            )
+
+        return Response(BookingSerializer(booking, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+class BookingProofUploadView(APIView):
+    """Upload caregiver proof image for an in-progress booking."""
+    permission_classes = [IsAuthenticated, IsCaregiver]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, pk):
+        try:
+            booking = Booking.objects.get(pk=pk, caregiver=request.user)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.status != "in_progress":
+            return Response(
+                {"error": "Proof upload is only allowed when booking is in_progress."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = BookingProofUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        booking.proof_image = serializer.validated_data["proof_image"]
+        booking.save(update_fields=["proof_image"])
+
+        return Response(BookingSerializer(booking, context={"request": request}).data, status=status.HTTP_200_OK)

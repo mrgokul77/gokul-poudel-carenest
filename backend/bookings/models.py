@@ -9,6 +9,7 @@ class Booking(models.Model):
     STATUS_CHOICES = (
         ("pending", "Pending"),
         ("accepted", "Accepted"),
+        ("in_progress", "In Progress"),
         ("completion_requested", "Completion Requested"),
         ("completed", "Completed"),
         ("rejected", "Declined"),
@@ -39,6 +40,9 @@ class Booking(models.Model):
         choices=STATUS_CHOICES,
         default="pending",  # always starts as waiting for caregiver response
     )  # No cancelled status
+    check_in_time = models.DateTimeField(null=True, blank=True)
+    check_out_time = models.DateTimeField(null=True, blank=True)
+    proof_image = models.ImageField(upload_to="booking_proofs/", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     service_address = models.CharField(max_length=255, blank=True)
     latitude = models.FloatField(null=True, blank=True)

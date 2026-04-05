@@ -3,6 +3,7 @@ WebSocket consumer for real-time notifications.
 Users connect to ws://host/ws/notifications/?token=<jwt>
 """
 import json
+from urllib.parse import parse_qs
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
@@ -21,11 +22,8 @@ class NotificationConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         query_string = self.scope.get("query_string", b"").decode()
-        token = None
-        for part in query_string.split("&"):
-            if part.startswith("token="):
-                token = part[6:].strip()
-                break
+        params = parse_qs(query_string)
+        token = params.get("token", [None])[0]
 
         if not token:
             await self.close(code=4001)

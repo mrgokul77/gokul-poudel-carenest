@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import api from "../api/axios";
+import api from "../api/axiosInstance";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -23,8 +23,24 @@ const Login = () => {
         password,
       });
 
+      console.log("[login] response data:", res.data);
+
+      const accessToken =
+        res.data?.access ??
+        res.data?.token?.access ??
+        res.data?.token ??
+        "";
+      const refreshToken =
+        res.data?.refresh ??
+        res.data?.token?.refresh ??
+        "";
+
+      if (!accessToken || !refreshToken) {
+        throw new Error("Login response did not include both access and refresh tokens.");
+      }
+
       // saves tokens + user info via context
-      login(res.data.token, res.data.role, res.data.user_id);
+      login({ access: accessToken, refresh: refreshToken }, res.data.role, res.data.user_id);
 
       // sends them to the right dashboard based on their role
       const role = res.data.role;
