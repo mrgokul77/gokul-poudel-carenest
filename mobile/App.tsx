@@ -2072,7 +2072,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 16,
   },
-  sosButton: {
+  sosPrimaryButton: {
     width: '80%',
     minHeight: 56,
     borderRadius: 16,
