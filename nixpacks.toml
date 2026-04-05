@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python311"]
 
 [phases.install]
-cmds = ["cd backend && pip3 install -r requirements.txt"]
+cmds = ["cd backend && python3.11 -m pip install -r requirements.txt"]
 
 [start]
-cmd = "cd backend && gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT"
+cmd = "cd backend && python3.11 -m gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT"
