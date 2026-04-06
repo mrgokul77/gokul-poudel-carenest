@@ -1,13 +1,13 @@
-import resend
-import os
+from django.core.mail import EmailMessage
+from django.conf import settings
 
 class util:
     @staticmethod
     def send_email(data):
-        resend.api_key = os.environ.get("RESEND_API_KEY")
-        resend.Emails.send({
-            "from": "CareNest <onboarding@resend.dev>",
-            "to": [data['to_email']],
-            "subject": data['subject'],
-            "text": data['body'],
-        })
+        email = EmailMessage(
+            subject=data['subject'],
+            body=data['body'],
+            from_email=settings.EMAIL_HOST_USER,
+            to=[data['to_email']],
+        )
+        email.send()
