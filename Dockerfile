@@ -10,4 +10,4 @@ COPY backend/ .
 
 EXPOSE 8000
 
-CMD gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT
+CMD python manage.py collectstatic --noinput && python manage.py migrate && python manage.py shell -c "from accounts.models import User; User.objects.filter(email='carenest.noreply@gmail.com').exists() or User.objects.create_superuser('carenest.noreply@gmail.com', 'carenest.noreply@gmail.com', 'Admin@1234')" && gunicorn backend.wsgi:application --bind 0.0.0.0:$PORT
