@@ -72,7 +72,7 @@ const AdminVerify = () => {
     setLoading(true);
     try {
       const res = await axios.get(
-        "http://localhost:8000/api/verifications/admin/list/?all=true",
+        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"}/verifications/admin/list/?all=true`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("access_token") || localStorage.getItem("access")}`,
@@ -101,7 +101,7 @@ const AdminVerify = () => {
     setProcessingId(request.id);
     try {
       await axios.put(
-        `http://localhost:8000/api/verifications/admin/${request.id}/verify/`,
+        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"}/verifications/admin/${request.id}/verify/`,
         { verification_status: "approved" },
         {
           headers: {
@@ -123,7 +123,7 @@ const AdminVerify = () => {
     setProcessingId(selectedRequest.id);
     try {
       await axios.put(
-        `http://localhost:8000/api/verifications/admin/${selectedRequest.id}/verify/`,
+        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"}/verifications/admin/${selectedRequest.id}/verify/`,
         {
           verification_status: "rejected",
           rejection_reason: rejectionReason,

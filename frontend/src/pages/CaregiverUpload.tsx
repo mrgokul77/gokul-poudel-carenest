@@ -38,7 +38,7 @@ const CaregiverUpload = () => {
   const fetchStatus = async () => {
     try {
       const res = await axios.get(
-        "http://localhost:8000/api/verifications/status/",
+        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"}/verifications/status/`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("access_token") || localStorage.getItem("access")}`,
@@ -126,7 +126,7 @@ const CaregiverUpload = () => {
       formData.append("certificate", certificate);
       
       const response = await axios.post(
-        "http://localhost:8000/api/verifications/upload-document/",
+        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api"}/verifications/upload-document/`,
         formData,
         {
           headers: {

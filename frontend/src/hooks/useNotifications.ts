@@ -12,7 +12,7 @@ export interface Notification {
   created_at: string;
 }
 
-const WS_BASE = "ws://localhost:8000";
+const WS_BASE = import.meta.env.VITE_WS_BASE_URL || "ws://localhost:8000";
 
 // dedupes by ID so we don't show the same notification twice
 function dedupeNotificationsById(items: Notification[]): Notification[] {

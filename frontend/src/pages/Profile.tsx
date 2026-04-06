@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:8000";
 
 /** turns relative URLs into full URLs so we can display images from the backend */
 const resolveProfileImageUrl = (url: string | null | undefined): string | null => {

@@ -38,7 +38,7 @@ const formatDateDivider = (iso: string): string => {
 
 const getWebSocketUrl = (conversationId: number): string => {
   const token = localStorage.getItem("access_token") || localStorage.getItem("access");
-  const base = "ws://localhost:8000";
+  const base = import.meta.env.VITE_WS_BASE_URL || "ws://localhost:8000";
   return `${base}/ws/chat/${conversationId}/?token=${encodeURIComponent(token || "")}`;
 };
 
