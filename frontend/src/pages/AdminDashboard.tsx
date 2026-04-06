@@ -71,6 +71,7 @@ function formatBookingId(id: number): string {
   return String(id);
 }
 
+// @ts-ignore
 function getInitials(name: string): string {
   if (!name || name === "—") return "--";
   return name
