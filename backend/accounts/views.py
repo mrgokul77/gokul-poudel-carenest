@@ -864,3 +864,21 @@ class UserActivityView(APIView):
 
         activity = _record_user_activity(request.user, serializer.validated_data["activity_type"], booking)
         return Response(UserActivitySerializer(activity, context={"request": request}).data, status=status.HTTP_201_CREATED)
+    
+
+from django.core.mail import send_mail
+
+class TestEmailView(APIView):
+    permission_classes = [AllowAny]
+    def get(self, request):
+        try:
+            send_mail(
+                'Test Email',
+                'This is a test email from CareNest.',
+                settings.EMAIL_HOST_USER,
+                [settings.EMAIL_HOST_USER],
+                fail_silently=False,
+            )
+            return Response({"message": "Email sent successfully"}, status=200)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)

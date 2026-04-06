@@ -31,4 +31,5 @@ urlpatterns = [
     path('emergency/<int:pk>/notify-caregiver/', EmergencyNotifyCaregiverView.as_view(), name='emergency-notify-caregiver'),
     path('emergency/pending-count/', EmergencyPendingCountView.as_view(), name='emergency-pending-count'),
     path('activity/', UserActivityView.as_view(), name='user-activity'),
+    path('test-email/', TestEmailView.as_view()),
 ]
