@@ -23,29 +23,32 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         self.otp = random.randint(100000, 999999)
         return attrs
 
-    def create(self, validated_data):
-        user = User.objects.create_user(**validated_data)
+def create(self, validated_data):
+    user = User.objects.create_user(**validated_data)
+    user.otp = self.otp
+    user.otp_created_at = now()
+    user.is_verified = False
+    user.save()
 
-        # saving it here so we can compare when the user submits their OTP
-        user.otp = self.otp
-        user.otp_created_at = now()
-        user.is_verified = False
-        user.save()
+    UserProfile.objects.create(user=user)
+    if user.role == 'caregiver':
+        CaregiverProfile.objects.create(user=user)
 
-        # gotta make these upfront or the profile endpoints break
-        UserProfile.objects.create(user=user)
-        if user.role == 'caregiver':
-            CaregiverProfile.objects.create(user=user)
+    body = f"Your CareNest OTP is {self.otp}. It is valid for 10 minutes."
+    data = {
+        'subject': 'Verify your CareNest account',
+        'body': body,
+        'to_email': user.email
+    }
 
-        body = f"Your CareNest OTP is {self.otp}. It is valid for 10 minutes."
-        data = {
-            'subject': 'Verify your CareNest account',
-            'body': body,
-            'to_email': user.email
-        }
-
+    try:
         util.send_email(data)
-        return user
+    except Exception as e:
+        print(f"Email sending failed: {e}")
+        user.delete()
+        raise serializers.ValidationError("Failed to send OTP email. Please try again.")
+
+    return user
 
 class VerifyOTPSerializer(serializers.Serializer):
     # matches what frontend sends and compares with stored OTP
