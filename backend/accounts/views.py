@@ -118,11 +118,11 @@ class UserLoginView(APIView):
 
             if authenticated_user is not None:
                 # not verified yet? can't log in unless they're an admin
-                if not authenticated_user.is_verified and authenticated_user.role != 'admin':
-                    return Response(
-                        {"error": "Email not verified. Please verify OTP."},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+                # if not authenticated_user.is_verified and authenticated_user.role != 'admin':
+                #     return Response(
+                #         {"error": "Email not verified. Please verify OTP."},
+                #         status=status.HTTP_403_FORBIDDEN
+                #     )
 
                 token = get_tokens_for_user(authenticated_user)
 
