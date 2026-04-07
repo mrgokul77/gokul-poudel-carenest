@@ -1,13 +1,18 @@
-from django.core.mail import EmailMessage
-from django.conf import settings
+import os
+from django.core.mail import send_mail
 
-class util:
+class Util:
     @staticmethod
     def send_email(data):
-        email = EmailMessage(
-            subject=data['subject'],
-            body=data['body'],
-            from_email=settings.EMAIL_HOST_USER,
-            to=[data['to_email']],
-        )
-        email.send()
+        try:
+            send_mail(
+                subject=data['subject'],
+                message=data['body'],
+                from_email=os.environ.get('DEFAULT_FROM_EMAIL'),
+                recipient_list=[data['to_email']],
+                fail_silently=False,
+            )
+            print("✅ Email sent via Gmail SMTP")
+
+        except Exception as e:
+            print("Email failed:", str(e))
