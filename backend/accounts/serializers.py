@@ -29,7 +29,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         user = User.objects.create_user(**validated_data)
         user.otp = self.otp
         user.otp_created_at = now()
-        user.is_verified = True
+        user.is_verified = False
         user.save()
 
         UserProfile.objects.create(user=user)

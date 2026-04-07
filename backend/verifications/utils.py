@@ -69,7 +69,7 @@ CareNest Team
                 'to_email': user_email
             }
             
-            util.send_email(data)
+            Util.send_email(data)
             logger.info(f"✓ Verification email sent to {user_email} - Status: {status}")
             
         except Exception as e:
