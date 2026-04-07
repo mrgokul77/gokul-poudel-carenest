@@ -15,11 +15,10 @@ from bookings.permissions import IsCareSeeker
 from reviews.models import Review
 from django.db.models import Avg, Count, Sum
 from django.utils import timezone
-from django.core.mail import send_mail
 from django.conf import settings
 from bookings.models import Booking
 from notifications.utils import send_push_notification
-
+import resend
 
 def get_tokens_for_user(user):
     # creating JWT tokens that the frontend stores and sends with each request
@@ -806,13 +805,14 @@ class EmergencyNotifyCaregiverView(APIView):
         if message_override:
             body = f"{body}\n\nAdmin Message:\n{message_override}"
 
-        send_mail(
-            subject,
-            body,
-            settings.EMAIL_HOST_USER,
-            [caregiver_email],
-            fail_silently=False,
-        )
+        
+
+        resend.Emails.send({
+    "from": "CareNest <noreply@carenestapp.me>",
+    "to": [caregiver_email],
+    "subject": subject,
+    "text": body
+})
 
         return Response({"message": "Caregiver notified via email"}, status=status.HTTP_200_OK)
 
@@ -866,19 +866,16 @@ class UserActivityView(APIView):
         return Response(UserActivitySerializer(activity, context={"request": request}).data, status=status.HTTP_201_CREATED)
     
 
-from django.core.mail import send_mail
-
 class TestEmailView(APIView):
     permission_classes = [AllowAny]
     def get(self, request):
         try:
-            send_mail(
-                'Test Email',
-                'This is a test email from CareNest.',
-                settings.EMAIL_HOST_USER,
-                [settings.EMAIL_HOST_USER],
-                fail_silently=False,
-            )
+            resend.Emails.send({
+                "from": "CareNest <noreply@carenestapp.me>",
+                "to": ["noreply@carenestapp.me"],
+                "subject": "Test Email",
+                "text": "This is a test email from CareNest."
+            })
             return Response({"message": "Email sent successfully"}, status=200)
         except Exception as e:
             return Response({"error": str(e)}, status=500)
