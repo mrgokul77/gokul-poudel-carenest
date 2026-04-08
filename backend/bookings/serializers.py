@@ -51,6 +51,10 @@ class CaregiverListSerializer(serializers.ModelSerializer):
             "average_rating",
             "review_count",
         ]
+
+    def _get_image_path(self, image_field):
+        return image_field.name if image_field else None
+
     def get_booking_status(self, obj):
         # shows if the current user already has a pending/active booking with this caregiver
         request = self.context.get("request")
@@ -69,10 +73,7 @@ class CaregiverListSerializer(serializers.ModelSerializer):
         except Exception:
             return None
         if profile and profile.profile_image:
-            request = self.context.get("request")
-            if request:
-                return request.build_absolute_uri(profile.profile_image.url)
-            return profile.profile_image.url
+            return self._get_image_path(profile.profile_image)
         return None
 
     def get_verification_status(self, obj):
@@ -233,6 +234,7 @@ class BookingSerializer(serializers.ModelSerializer):
     verification_status = serializers.SerializerMethodField()
     review_rating = serializers.SerializerMethodField()
     has_review = serializers.SerializerMethodField()
+    proof_image = serializers.ImageField(read_only=True, use_url=False)
 
     class Meta:
         model = Booking
@@ -305,10 +307,7 @@ class BookingSerializer(serializers.ModelSerializer):
         try:
             profile = obj.family.profile
             if profile and profile.profile_image:
-                request = self.context.get("request")
-                if request:
-                    return request.build_absolute_uri(profile.profile_image.url)
-                return profile.profile_image.url
+                return profile.profile_image.name
         except Exception:
             pass
         return None
@@ -317,10 +316,7 @@ class BookingSerializer(serializers.ModelSerializer):
         try:
             profile = obj.caregiver.profile
             if profile and profile.profile_image:
-                request = self.context.get("request")
-                if request:
-                    return request.build_absolute_uri(profile.profile_image.url)
-                return profile.profile_image.url
+                return profile.profile_image.name
         except Exception:
             pass
         return None
@@ -395,4 +391,4 @@ class BookingStatusUpdateSerializer(serializers.Serializer):
 
 
 class BookingProofUploadSerializer(serializers.Serializer):
-    proof_image = serializers.ImageField(required=True)
+    proof_image = serializers.ImageField(required=True, use_url=False)

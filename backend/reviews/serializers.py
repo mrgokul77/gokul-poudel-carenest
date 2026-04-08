@@ -32,10 +32,7 @@ class ReviewSerializer(serializers.ModelSerializer):
         try:
             profile = obj.careseeker.profile
             if profile and profile.profile_image:
-                request = self.context.get("request")
-                if request:
-                    return request.build_absolute_uri(profile.profile_image.url)
-                return profile.profile_image.url
+                return profile.profile_image.name
         except Exception:
             pass
         return None

@@ -6,16 +6,7 @@ import UserDetailsModal from "../components/admin/UserDetailsModal";
 import type { User } from "../components/admin/UsersTable";
 import { Search, ChevronLeft, ChevronRight, AlertCircle, CheckCircle } from "lucide-react";
 import { adminApi } from "../api/axios";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:8000";
-
-/** Resolve profile_image to full URL (backend may return relative path) */
-const resolveProfileImageUrl = (url: string | null | undefined): string | null => {
-  if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${API_BASE}${url}`;
-  return url;
-};
+import { resolveBackendMediaUrl } from "../utils/media";
 
 /** Map API user to frontend User shape */
 const mapApiUserToUser = (u: {
@@ -31,7 +22,7 @@ const mapApiUserToUser = (u: {
   email: u.email,
   role: u.role as User["role"],
   status: u.is_active ? "active" : "inactive",
-  profileImage: resolveProfileImageUrl(u.profile_image) ?? null,
+  profileImage: resolveBackendMediaUrl(u.profile_image) ?? null,
 });
 
 const AdminUsersPage = () => {

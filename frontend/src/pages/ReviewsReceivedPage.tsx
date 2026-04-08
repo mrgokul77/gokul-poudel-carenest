@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BarChart3, Star } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { reviewsApi } from "../api/axios";
+import { resolveBackendMediaUrl } from "../utils/media";
 
 type ReviewRow = {
   id: number;
@@ -154,7 +155,7 @@ const ReviewsReceivedPage = () => {
                             <div className="flex items-center gap-3">
                               {r.careseeker_profile_image ? (
                                 <img
-                                  src={r.careseeker_profile_image}
+                                  src={resolveBackendMediaUrl(r.careseeker_profile_image) || ""}
                                   alt={r.careseeker_name || "Careseeker"}
                                   className="w-12 h-12 rounded-full object-cover border border-green-300"
                                 />

@@ -4,6 +4,7 @@ import CaregiverProfileCard from "../components/CaregiverProfileCard";
 import type { CaregiverProfileCardData } from "../components/CaregiverProfileCard";
 import api from "../api/axios";
 import axios from "axios";
+import { resolveBackendMediaUrl } from "../utils/media";
 import {
   CheckCircle,
   XCircle,
@@ -169,9 +170,18 @@ const AdminVerify = () => {
   // Open carousel with all documents for a request
   const openDocumentCarousel = (req: VerificationRequest) => {
     const docs: { url: string; label: string }[] = [];
-    if (req.citizenship_front_url) docs.push({ url: req.citizenship_front_url, label: "Citizenship Front" });
-    if (req.citizenship_back_url) docs.push({ url: req.citizenship_back_url, label: "Citizenship Back" });
-    if (req.certificate_url) docs.push({ url: req.certificate_url, label: "Certificate" });
+    if (req.citizenship_front_url) {
+      const resolved = resolveBackendMediaUrl(req.citizenship_front_url);
+      if (resolved) docs.push({ url: resolved, label: "Citizenship Front" });
+    }
+    if (req.citizenship_back_url) {
+      const resolved = resolveBackendMediaUrl(req.citizenship_back_url);
+      if (resolved) docs.push({ url: resolved, label: "Citizenship Back" });
+    }
+    if (req.certificate_url) {
+      const resolved = resolveBackendMediaUrl(req.certificate_url);
+      if (resolved) docs.push({ url: resolved, label: "Certificate" });
+    }
     if (docs.length > 0) {
       setCarouselDocuments(docs);
       setCarouselRequest(req);
@@ -410,7 +420,7 @@ const AdminVerify = () => {
                         >
                           {req.profile_image ? (
                             <img
-                              src={req.profile_image}
+                              src={resolveBackendMediaUrl(req.profile_image) || ""}
                               alt={req.username}
                               className="w-full h-full object-cover"
                             />

@@ -123,7 +123,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     role = serializers.CharField(source="user.role", read_only=True)
     phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
     address = serializers.CharField(required=False, allow_blank=True)
-    profile_image = serializers.ImageField(required=False, allow_null=True)
+    profile_image = serializers.ImageField(required=False, allow_null=True, use_url=False)
 
     review_count = serializers.SerializerMethodField(read_only=True)
     average_rating = serializers.SerializerMethodField(read_only=True)
@@ -290,14 +290,10 @@ class EmergencySerializer(serializers.ModelSerializer):
         return profile.phone if profile else None
 
     def get_careseeker_profile_image(self, obj):
-        request = self.context.get("request")
         profile = getattr(obj.careseeker, "profile", None)
         if not profile or not profile.profile_image:
             return None
-        url = profile.profile_image.url
-        if request and not url.startswith(("http://", "https://")):
-            return request.build_absolute_uri(url)
-        return url
+        return profile.profile_image.name
 
     def get_caregiver_name(self, obj):
         booking = getattr(obj, "booking", None)
@@ -341,14 +337,10 @@ class UserActivitySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_careseeker_profile_image(self, obj):
-        request = self.context.get("request")
         profile = getattr(obj.user, "profile", None)
         if not profile or not profile.profile_image:
             return None
-        url = profile.profile_image.url
-        if request and not url.startswith(("http://", "https://")):
-            return request.build_absolute_uri(url)
-        return url
+        return profile.profile_image.name
 
 
 class UserActivityCreateSerializer(serializers.Serializer):

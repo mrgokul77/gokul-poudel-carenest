@@ -34,10 +34,7 @@ class CaregiverVerificationSerializer(serializers.ModelSerializer):
     
     def _get_file_url(self, file_field):
         if file_field:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(file_field.url)
-            return file_field.url
+            return file_field.name
         return None
     
     def get_citizenship_front_url(self, obj):
@@ -95,10 +92,7 @@ class AdminCaregiverVerificationSerializer(serializers.ModelSerializer):
 
     def _get_file_url(self, file_field):
         if file_field:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(file_field.url)
-            return file_field.url
+            return file_field.name
         return None
 
     def get_profile_image(self, obj):

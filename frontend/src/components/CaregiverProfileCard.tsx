@@ -7,6 +7,7 @@ import {
   Star,
   Check,
 } from "lucide-react";
+import { resolveBackendMediaUrl } from "../utils/media";
 
 export interface CaregiverProfileCardData {
   username?: string;
@@ -39,7 +40,7 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
 
   const cd = profile.caregiver_details;
   const imageUrl =
-    profile.profile_image ||
+    resolveBackendMediaUrl(profile.profile_image) ||
     `https://ui-avatars.com/api/?name=${profile.username}&background=random`;
 
   return (

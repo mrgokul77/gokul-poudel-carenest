@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { resolveBackendMediaUrl } from "../../utils/media";
 
 export type UserAvatarSize = "sm" | "md" | "lg";
 
@@ -22,7 +23,8 @@ const UserAvatar = ({
   className = "",
 }: UserAvatarProps) => {
   const [imageError, setImageError] = useState(false);
-  const showImage = imageUrl && !imageError;
+  const resolvedImageUrl = resolveBackendMediaUrl(imageUrl);
+  const showImage = resolvedImageUrl && !imageError;
 
   const sizeClass = sizeClasses[size];
   const baseClasses =
@@ -35,7 +37,7 @@ const UserAvatar = ({
     >
       {showImage ? (
         <img
-          src={imageUrl}
+          src={resolvedImageUrl}
           alt={name}
           className="w-full h-full object-cover"
           onError={() => setImageError(true)}

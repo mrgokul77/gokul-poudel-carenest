@@ -1,16 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "../api/axios";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api", "") || "http://localhost:8000";
-
-/** turns relative URLs into full URLs so we can display images from the backend */
-const resolveProfileImageUrl = (url: string | null | undefined): string | null => {
-  if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${API_BASE}${url}`;
-  return url;
-};
+import { resolveBackendMediaUrl } from "../utils/media";
 import Navbar from "../components/Navbar";
 import {
   User,
@@ -176,7 +167,7 @@ const Profile = () => {
       });
 
       // image comes from backend and persists across page refreshes
-      setImagePreview(resolveProfileImageUrl(data.profile_image) || null);
+      setImagePreview(resolveBackendMediaUrl(data.profile_image) || null);
 
       // load caregiver fields if they're a caregiver
       if (data.role === "caregiver" && data.caregiver_details) {

@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { resolveBackendMediaUrl } from "../utils/media";
 
 interface VerifiedAvatarProps {
   src?: string | null;
@@ -20,6 +21,7 @@ const VerifiedAvatar = ({
   onImageError,
   className = "",
 }: VerifiedAvatarProps) => {
+  const resolvedSrc = resolveBackendMediaUrl(src);
   const getInitial = (name: string) => name.charAt(0).toUpperCase();
 
   const sizeClasses = {
@@ -77,9 +79,9 @@ const VerifiedAvatar = ({
   // Avatar wrapper - dedicated container with position: relative
   const avatarWrapper = (
     <div className={`relative shrink-0 ${className}`}>
-      {src ? (
+      {resolvedSrc ? (
         <img
-          src={src}
+          src={resolvedSrc}
           alt={username}
           className={imgClasses}
           onError={onImageError}

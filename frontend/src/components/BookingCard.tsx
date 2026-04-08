@@ -1,5 +1,6 @@
 import React from "react";
 import VerifiedAvatar from "./VerifiedAvatar";
+import { resolveBackendMediaUrl } from "../utils/media";
 
 export interface Booking {
   id: number;
@@ -119,6 +120,7 @@ const BookingCard: React.FC<BookingCardProps> = ({
   const displayImage = isCaregiverView
     ? booking.family_profile_image || null
     : booking.caregiver_profile_image || null;
+  const resolvedDisplayImage = resolveBackendMediaUrl(displayImage);
 
   // Calculate start time for "Mark Service Complete" (caregiver: now >= start_time)
   let startDateTime: Date | null = null;
@@ -142,9 +144,9 @@ const BookingCard: React.FC<BookingCardProps> = ({
       <div className="flex items-start justify-between gap-5">
         <div className="flex items-center gap-3 min-w-0">
           {isCaregiverView ? (
-            displayImage ? (
+            resolvedDisplayImage ? (
               <img
-                src={displayImage}
+                src={resolvedDisplayImage}
                 alt={displayName || "Profile"}
                 className="w-14 h-14 rounded-full border-2 border-green-300 object-cover shrink-0"
               />

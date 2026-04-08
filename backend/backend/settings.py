@@ -24,7 +24,18 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
+def _csv_env(name, default=""):
+    raw = os.getenv(name, default)
+    return [item.strip() for item in raw.split(',') if item and item.strip()]
+
+
+def _origin_env(name, default=""):
+    # Django 4+ requires scheme in CSRF_TRUSTED_ORIGINS (http:// or https://)
+    origins = _csv_env(name, default)
+    return [o for o in origins if o.startswith(("http://", "https://"))]
+
+
+ALLOWED_HOSTS = _csv_env('ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
 
 # Application definition
@@ -180,15 +191,15 @@ SIMPLE_JWT = {
 
 }
 
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
-CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',')
+CORS_ALLOWED_ORIGINS = _origin_env('CORS_ALLOWED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173')
+CSRF_TRUSTED_ORIGINS = _origin_env('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173')
 
 
 PASSWORD_RESET_TIMEOUT = 900  # 15 minutes in seconds
 
-# settings.py
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# Uploaded files are stored under backend/uploads and exposed at /uploads/
+MEDIA_URL = "/uploads/"
+MEDIA_ROOT = BASE_DIR / "uploads"
 
 # Frontend URL for Khalti redirect
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
