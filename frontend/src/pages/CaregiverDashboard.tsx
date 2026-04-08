@@ -6,7 +6,6 @@ import {
   SummaryCards,
   QuickActions,
   RecentRequests,
-  VerificationStatus,
   type RecentBooking,
 } from "../components/dashboard";
 
@@ -147,7 +146,6 @@ const CaregiverDashboard = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="space-y-6 lg:col-span-1">
-                <VerificationStatus status={summary.profile.verification_status} />
                 <QuickActions variant="caregiver" layout="vertical" />
               </div>
               <div className="lg:col-span-2">

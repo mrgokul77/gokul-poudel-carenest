@@ -160,35 +160,35 @@ class AdminVerifyCaregiverView(APIView):
     def put(self, request, pk):
         """Update verification status"""
         try:
-            verification = CaregiverVerification.objects.select_for_update().get(pk=pk)
-        except CaregiverVerification.DoesNotExist:
-            return Response(
-                {"error": "Verification request not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        new_status = request.data.get('verification_status')
-        if new_status not in ['approved', 'rejected']:
-            return Response(
-                {"error": "Status must be 'approved' or 'rejected'"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if verification.verification_status != 'pending':
-            return Response(
-                {"error": f"This verification has already been {verification.verification_status}"},
-                status=status.HTTP_409_CONFLICT
-            )
-
-        rejection_reason = request.data.get('rejection_reason', '').strip()
-        if new_status == 'rejected' and not rejection_reason:
-            return Response(
-                {"error": "Rejection reason is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
             with transaction.atomic():
+                try:
+                    verification = CaregiverVerification.objects.select_for_update().get(pk=pk)
+                except CaregiverVerification.DoesNotExist:
+                    return Response(
+                        {"error": "Verification request not found"},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+                new_status = request.data.get('verification_status')
+                if new_status not in ['approved', 'rejected']:
+                    return Response(
+                        {"error": "Status must be 'approved' or 'rejected'"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if verification.verification_status != 'pending':
+                    return Response(
+                        {"error": f"This verification has already been {verification.verification_status}"},
+                        status=status.HTTP_409_CONFLICT
+                    )
+
+                rejection_reason = request.data.get('rejection_reason', '').strip()
+                if new_status == 'rejected' and not rejection_reason:
+                    return Response(
+                        {"error": "Rejection reason is required"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
                 verification.verification_status = new_status
                 verification.verified_by = request.user
                 
