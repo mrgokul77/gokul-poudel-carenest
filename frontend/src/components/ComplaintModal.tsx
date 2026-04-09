@@ -8,9 +8,11 @@ interface ComplaintModalProps {
   booking: {
     id: number;
     caregiver_name?: string;
+    family_name?: string;
     status: string;
   };
   onSuccess: () => void;
+  role?: "caregiver" | "careseeker";
 }
 
 interface UserComplaint {
@@ -19,7 +21,8 @@ interface UserComplaint {
   status: "open" | "investigating" | "resolved" | "dismissed";
 }
 
-const CATEGORIES = [
+// Careseeker complaint categories
+const CARESEEKER_CATEGORIES = [
   {
     group: "Before/During Service",
     options: [
@@ -50,11 +53,47 @@ const CATEGORIES = [
   },
 ];
 
+// Caregiver complaint categories
+const CAREGIVER_CATEGORIES = [
+  {
+    group: "Before/During Service",
+    options: [
+      "Careseeker was not present at the location",
+      "Careseeker was rude or disrespectful",
+      "Unsafe or uncomfortable environment",
+      "Care recipient had undisclosed medical condition",
+    ],
+  },
+  {
+    group: "After Service",
+    options: [
+      "Payment not received",
+      "Wrong payment amount",
+      "Careseeker left a false review",
+    ],
+  },
+  {
+    group: "Booking/Platform Issue (any time)",
+    options: [
+      "Booking cancelled without notice",
+      "Wrong careseeker details shown",
+      "App showed wrong schedule or details",
+      "Other",
+    ],
+  },
+];
+
+const CATEGORIES: Record<string, typeof CARESEEKER_CATEGORIES> = {
+  careseeker: CARESEEKER_CATEGORIES,
+  caregiver: CAREGIVER_CATEGORIES,
+};
+
 const ComplaintModal: React.FC<ComplaintModalProps> = ({
   isOpen,
   onClose,
   booking,
   onSuccess,
+  role = "careseeker",
 }) => {
   const [step, setStep] = useState(1);
   const [category, setCategory] = useState("");
@@ -88,9 +127,9 @@ const ComplaintModal: React.FC<ComplaintModalProps> = ({
     .filter((c) => ["open", "investigating"].includes(c.status))
     .map((c) => c.category);
 
-  const allCategoriesDisabled = CATEGORIES.every((group) =>
-    group.options.every((opt) => activeComplaintCategories.includes(opt))
-  );
+  const allCategoriesDisabled = CATEGORIES[role].every((group) =>
+  group.options.every((opt) => activeComplaintCategories.includes(opt))
+);
 
   const handleSubmit = async () => {
     if (description.length < 20) {
@@ -153,7 +192,9 @@ const ComplaintModal: React.FC<ComplaintModalProps> = ({
         <div className="text-center mb-6">
           <h3 className="text-2xl font-bold text-gray-900 mb-2">File a Complaint</h3>
           <p className="text-sm text-gray-500">
-            Booking for caregiver <span className="font-semibold text-gray-800">{booking.caregiver_name || "N/A"}</span>
+            Booking for {role === "caregiver" ? "careseeker" : "caregiver"} <span className="font-semibold text-gray-800">
+              {role === "caregiver" ? (booking.family_name || "N/A") : (booking.caregiver_name || "N/A")}
+            </span>
           </p>
         </div>
 
@@ -177,7 +218,7 @@ const ComplaintModal: React.FC<ComplaintModalProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-6 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                    {CATEGORIES.map((group) => (
+                    {CATEGORIES[role].map((group) => (
                       <div key={group.group}>
                         <h5 className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-3">
                           {group.group}

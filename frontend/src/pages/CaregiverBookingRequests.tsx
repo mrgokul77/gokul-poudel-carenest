@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import Navbar from "../components/Navbar";
 import BookingCard from "../components/BookingCard";
-import { bookingsApi } from "../api/axios";
+import ComplaintModal from "../components/ComplaintModal";
+import { bookingsApi, complaintsApi } from "../api/axios";
 import api from "../api/axios";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -27,6 +28,12 @@ interface Booking {
   payment_status?: string;
 }
 
+interface UserComplaint {
+  id: number;
+  booking_id: number;
+  status: string;
+}
+
 const CaregiverBookingRequests = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,10 +46,19 @@ const CaregiverBookingRequests = () => {
   const itemsPerPage = 6;
 
   const [caregiverServices, setCaregiverServices] = useState<string[]>([]);
+  const [userComplaints, setUserComplaints] = useState<UserComplaint[]>([]);
+  const [complaintModal, setComplaintModal] = useState({
+    isOpen: false,
+    bookingId: 0,
+    caregiverName: "",
+    familyName: "",
+    status: "",
+  });
 
   useEffect(() => {
     fetchBookings();
     fetchCaregiverServices();
+    fetchUserComplaints();
   }, []);
 
   const fetchBookings = async () => {
@@ -68,6 +84,32 @@ const CaregiverBookingRequests = () => {
     } catch {
       setCaregiverServices([]);
     }
+  };
+
+  const fetchUserComplaints = async () => {
+    try {
+      const res = await complaintsApi.get("my-complaints/");
+      setUserComplaints(res.data);
+    } catch (err) {
+      console.error("Failed to fetch user complaints", err);
+    }
+  };
+
+  const hasActiveComplaint = (bookingId: number) => {
+    return userComplaints.some(
+      (c) => c.booking_id === bookingId && ["open", "investigating"].includes(c.status)
+    );
+  };
+
+  const handleFileComplaint = (bookingId: number, familyName: string, caregiverName: string) => {
+    const booking = bookings.find((b) => b.id === bookingId);
+    setComplaintModal({
+      isOpen: true,
+      bookingId,
+      familyName,
+      caregiverName,
+      status: booking ? (booking.booking_status || booking.status) : "",
+    });
   };
 
   const respond = async (id: number, status: "accepted" | "rejected") => {
@@ -304,6 +346,8 @@ const CaregiverBookingRequests = () => {
                           hasAcceptedBooking={hasAcceptedBooking}
                           onRespond={respond}
                           onMarkServiceComplete={markServiceComplete}
+                          onFileComplaint={handleFileComplaint}
+                          hasActiveComplaint={hasActiveComplaint(b.id)}
                         />
                       ))}
                     </div>
@@ -321,6 +365,8 @@ const CaregiverBookingRequests = () => {
                           hasAcceptedBooking={hasAcceptedBooking}
                           onRespond={respond}
                           onMarkServiceComplete={markServiceComplete}
+                          onFileComplaint={handleFileComplaint}
+                          hasActiveComplaint={hasActiveComplaint(b.id)}
                         />
                       ))}
                     </div>
@@ -354,6 +400,25 @@ const CaregiverBookingRequests = () => {
             )}
           </div>
         </div>
+
+        {complaintModal.isOpen && (
+          <ComplaintModal
+            isOpen={complaintModal.isOpen}
+            onClose={() => setComplaintModal({ ...complaintModal, isOpen: false })}
+            booking={{
+              id: complaintModal.bookingId,
+              caregiver_name: complaintModal.caregiverName,
+              family_name: complaintModal.familyName,
+              status: complaintModal.status,
+            }}
+            role="caregiver"
+            onSuccess={() => {
+              alert("Your complaint has been filed successfully. We will investigate and get back to you.");
+              fetchBookings();
+              fetchUserComplaints();
+            }}
+          />
+        )}
       </div>
     </div>
   );
