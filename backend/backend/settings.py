@@ -201,6 +201,16 @@ PASSWORD_RESET_TIMEOUT = 900  # 15 minutes in seconds
 MEDIA_URL = "/uploads/"
 MEDIA_ROOT = BASE_DIR / "uploads"
 
+# Auto-create upload folders on startup
+folders_to_create = [
+    os.path.join(MEDIA_ROOT, 'verification', 'certificates'),
+    os.path.join(MEDIA_ROOT, 'verification', 'citizenship'),
+    os.path.join(MEDIA_ROOT, 'profiles'),
+    os.path.join(MEDIA_ROOT, 'booking_proofs'),
+]
+for folder in folders_to_create:
+    os.makedirs(folder, exist_ok=True)
+
 # Frontend URL for Khalti redirect
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 

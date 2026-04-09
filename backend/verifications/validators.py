@@ -13,10 +13,15 @@ def validate_image_file(file):
     
     # Check file size (5MB = 5 * 1024 * 1024 bytes)
     max_size = 5 * 1024 * 1024
-    if file.size > max_size:
-        raise ValidationError(
-            f"Image file size must be less than 5MB. Current size: {file.size / (1024 * 1024):.2f}MB"
-        )
+    try:
+        if file.size > max_size:
+            raise ValidationError(
+                f"Image file size must be less than 5MB. Current size: {file.size / (1024 * 1024):.2f}MB"
+            )
+    except FileNotFoundError:
+        # File no longer exists on disk (e.g. after Render restart)
+        # Skip size validation — file path is already stored in DB
+        return file
     
     # Check file extension
     allowed_extensions = ['.jpg', '.jpeg', '.png', '.webp']
@@ -48,10 +53,15 @@ def validate_document_file(file):
     
     # Check file size (5MB = 5 * 1024 * 1024 bytes)
     max_size = 5 * 1024 * 1024
-    if file.size > max_size:
-        raise ValidationError(
-            f"File size must be less than 5MB. Current size: {file.size / (1024 * 1024):.2f}MB"
-        )
+    try:
+        if file.size > max_size:
+            raise ValidationError(
+                f"File size must be less than 5MB. Current size: {file.size / (1024 * 1024):.2f}MB"
+            )
+    except FileNotFoundError:
+        # File no longer exists on disk (e.g. after Render restart)
+        # Skip size validation — file path is already stored in DB
+        return file
     
     # Check file extension
     allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']

@@ -65,7 +65,7 @@ class CaregiverVerification(models.Model):
         
         for field_name in ['citizenship_front', 'citizenship_back', 'certificate']:
             file = getattr(self, field_name, None)
-            if file:
+            if file and hasattr(file, 'file'):
                 try:
                     validate_image_file(file)
                 except ValidationError as e:
