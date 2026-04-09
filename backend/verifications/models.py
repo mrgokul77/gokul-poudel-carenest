@@ -60,17 +60,19 @@ class CaregiverVerification(models.Model):
         ordering = ['-uploaded_at']
 
     def clean(self):
-        """Validate all document files"""
+    #  Validate document files — only runs on new uploads, not existing saved files
         errors = {}
-        
+
         for field_name in ['citizenship_front', 'citizenship_back', 'certificate']:
             file = getattr(self, field_name, None)
-            if file and hasattr(file, 'file'):
-                try:
-                    validate_image_file(file)
-                except ValidationError as e:
-                    errors[field_name] = e.messages if hasattr(e, 'messages') else [str(e)]
-        
+        # Check if it's a new upload by checking if the file has been changed
+        # FieldFile objects from DB just have a name string, new uploads have _file set
+        if file and file.name and hasattr(file, '_file') and file._file is not None:
+            try:
+                validate_image_file(file)
+            except ValidationError as e:
+                errors[field_name] = e.messages if hasattr(e, 'messages') else [str(e)]
+
         if errors:
             raise ValidationError(errors)
 
