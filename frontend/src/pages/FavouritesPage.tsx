@@ -22,6 +22,8 @@ interface FavouriteCaregiver {
 interface BookingListItem {
   caregiver_id?: number;
   caregiver?: number;
+  caregiver_details?: { id?: number | string };
+  caregiver_info?: { id?: number | string };
   status?: string;
   booking_status?: string;
 }
@@ -53,8 +55,24 @@ const FavouritesPage = () => {
               status === "in_progress"
             );
           })
-          .map((b) => b.caregiver_id ?? b.caregiver)
-          .filter((id): id is number => typeof id === "number");
+          .map((b: any) => {
+            const id =
+              b.caregiver_id ??
+              b.caregiver ??
+              b.caregiver_details?.id ??
+              b.caregiver_info?.id ??
+              null;
+            return id !== null && id !== undefined ? Number(id) : null;
+          })
+          .filter((id): id is number => id !== null && !Number.isNaN(id));
+
+        console.log("Bookings data:", bookings);
+        console.log(
+          "First booking keys:",
+          bookings[0] ? Object.keys(bookings[0]) : "empty",
+        );
+        console.log("Requested IDs:", requested);
+        console.log("Favourite IDs:", favourites.map((f) => f.id));
 
         setRequestedCaregiverIds(requested);
       } catch {
@@ -102,7 +120,9 @@ const FavouritesPage = () => {
         ) : (
           <ul className="space-y-5">
             {favourites.map((caregiver) => {
-              const hasRequest = requestedCaregiverIds.includes(caregiver.id);
+              const hasRequest = requestedCaregiverIds
+                .map(Number)
+                .includes(Number(caregiver.id));
               const serviceTypes = caregiver.service_types ?? caregiver.service_type ?? [];
               const location = caregiver.location ?? caregiver.address ?? "Location not set";
               const ratingText =
