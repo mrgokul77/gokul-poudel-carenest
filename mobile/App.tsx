@@ -8,12 +8,15 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
+import MapView, { Marker } from 'react-native-maps';
 import {
   Animated,
   ActivityIndicator,
   Alert,
   FlatList,
   Image,
+  Linking,
+  Modal,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -24,7 +27,7 @@ import {
 } from 'react-native';
 import { Easing } from 'react-native';
 
-const API_BASE_URL = 'http://192.168.1.69:8000/api';
+const API_BASE_URL = 'https://gokul-poudel-carenest.onrender.com/api';
 const AUTH_TOKEN_KEY = 'carenest_auth_token';
 const AUTH_USER_KEY = 'carenest_auth_user';
 const JWT_TOKEN_KEY = 'jwt_token';
@@ -89,6 +92,7 @@ async function apiCall(
 type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
+  OTPVerification: { email: string };
   Main: undefined;
 };
 
@@ -152,6 +156,18 @@ type AssignedBooking = {
   check_in_time?: string | null;
   check_out_time?: string | null;
   proof_image?: string | null;
+};
+
+type Coordinates = {
+  latitude: number;
+  longitude: number;
+};
+
+type CaregiverLocationResponse = {
+  latitude: number | null;
+  longitude: number | null;
+  updated_at: string | null;
+  is_available: boolean;
 };
 
 Notifications.setNotificationHandler({
@@ -363,6 +379,50 @@ function getBookingStartDateTime(booking: AssignedBooking) {
   return start;
 }
 
+function getDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function getCareseekerBookingStatusText(booking: AssignedBooking) {
+  const status = (booking.status || '').toLowerCase();
+  if (status === 'pending') return 'Waiting for caregiver response';
+  if (status === 'accepted') {
+    return `Caregiver accepted - service on ${booking.date ? new Date(booking.date).toLocaleDateString() : 'scheduled date'}`;
+  }
+  if (status === 'in_progress') return '● Service in progress - Tap to track';
+  if (status === 'completed') return 'Service completed - Tap to rate';
+  if (status === 'rejected') return 'Booking rejected';
+  return 'Booking status updated';
+}
+
+function getUpdatedAgoLabel(updatedAt: string | null, nowMs: number) {
+  if (!updatedAt) {
+    return 'Updated just now';
+  }
+
+  const updatedTime = new Date(updatedAt).getTime();
+  if (Number.isNaN(updatedTime)) {
+    return 'Updated just now';
+  }
+
+  const secondsAgo = Math.max(0, Math.floor((nowMs - updatedTime) / 1000));
+  return `Updated ${secondsAgo} seconds ago`;
+}
+
 function EmergencyAlertButton({
   subtitle,
   onPress,
@@ -414,6 +474,32 @@ function EmergencyAlertButton({
       <Text style={styles.sosSubtitle}>{subtitle}</Text>
     </View>
   );
+}
+
+function PulsingDot() {
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1.25,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
+
+  return <Animated.View style={[styles.pulsingDot, { transform: [{ scale: pulse }] }]} />;
 }
 
 async function fetchAssignedBookings(token: string): Promise<AssignedBooking[]> {
@@ -486,6 +572,51 @@ async function updateBookingStatus(
       'Content-Type': 'application/json',
     }),
     body: JSON.stringify(bodyPayload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json();
+}
+
+async function sendCaregiverLocation(
+  token: string,
+  bookingId: number,
+  coords: Coordinates,
+): Promise<CaregiverLocationResponse> {
+  const url = `${API_BASE_URL}/bookings/${bookingId}/update-location/`;
+  const response = await fetchWithTimeout(url, {
+    method: 'PATCH',
+    headers: addMobileClientHeader({
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    }),
+    body: JSON.stringify({
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json();
+}
+
+async function fetchCaregiverLocation(
+  token: string,
+  bookingId: number,
+): Promise<CaregiverLocationResponse> {
+  const url = `${API_BASE_URL}/bookings/${bookingId}/caregiver-location/`;
+  const response = await fetchWithTimeout(url, {
+    method: 'GET',
+    headers: addMobileClientHeader({
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    }),
   });
 
   if (!response.ok) {
@@ -711,9 +842,10 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-function AuthScreen({ mode, onSubmit, onSwitch }: {
+function AuthScreen({ mode, onSubmit, onSignupSuccess, onSwitch }: {
   mode: 'login' | 'signup';
   onSubmit: (values: { name?: string; email: string; password: string; role?: string }) => Promise<void>;
+  onSignupSuccess?: (email: string) => void;
   onSwitch: () => void;
 }) {
   const [name, setName] = useState('');
@@ -735,14 +867,18 @@ function AuthScreen({ mode, onSubmit, onSwitch }: {
     try {
       await onSubmit({ name, email, password, role });
       if (isSignup) {
-        Alert.alert(
-          'Signup complete',
-          'Account created. If OTP verification is enabled, verify your email then login.',
-        );
-        setName('');
-        setEmail('');
-        setPassword('');
-        setRole('careseeker');
+        if (onSignupSuccess) {
+          onSignupSuccess(email.trim());
+        } else {
+          Alert.alert(
+            'Signup complete',
+            'Account created. If OTP verification is enabled, verify your email then login.',
+          );
+          setName('');
+          setEmail('');
+          setPassword('');
+          setRole('careseeker');
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to continue.';
@@ -881,8 +1017,138 @@ function SignupScreen({ navigation }: any) {
     <AuthScreen
       mode="signup"
       onSubmit={({ name, email, password, role }) => signup(name ?? '', email, password, role ?? 'careseeker')}
+      onSignupSuccess={(email) => navigation.navigate('OTPVerification', { email })}
       onSwitch={() => navigation.navigate('Login')}
     />
+  );
+}
+
+function OTPVerificationScreen({ route, navigation }: any) {
+  const email = route.params?.email ?? '';
+  const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  const handleVerify = async () => {
+    if (!otp.trim() || otp.length < 4) {
+      Alert.alert('Invalid OTP', 'Please enter the OTP sent to your email.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetchWithTimeout(
+        `${API_BASE_URL}/user/verify-otp/`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, otp }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(await parseError(response));
+      }
+
+      Alert.alert(
+        'Verified!',
+        'Your account has been verified. Please login.',
+        [{ text: 'Login', onPress: () => navigation.navigate('Login') }]
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Verification failed.';
+      Alert.alert('Error', message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      const response = await fetchWithTimeout(
+        `${API_BASE_URL}/user/resend-otp/`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(await parseError(response));
+      }
+
+      Alert.alert('OTP Sent', 'A new OTP has been sent to your email.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not resend OTP.';
+      Alert.alert('Error', message);
+    } finally {
+      setResending(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={styles.authBackground}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.logoContainer}>
+          <Image
+            source={require('./assets/carenest-logo.png')}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <View style={styles.divider} />
+        </View>
+
+        <View style={styles.authCard}>
+          <Text style={styles.authTitle}>Verify Your Email</Text>
+          <Text style={styles.authSubtitle}>
+            Enter the OTP sent to {email}
+          </Text>
+
+          <TextInput
+            style={[styles.input, { textAlign: 'center', fontSize: 24, letterSpacing: 8 }]}
+            placeholder="000000"
+            value={otp}
+            onChangeText={setOtp}
+            keyboardType="number-pad"
+            maxLength={6}
+            placeholderTextColor="#cbd5e1"
+          />
+
+          <Pressable
+            style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
+            onPress={handleVerify}
+            disabled={loading}
+          >
+            {loading
+              ? <ActivityIndicator color="#ffffff" />
+              : <Text style={styles.primaryButtonText}>Verify OTP</Text>
+            }
+          </Pressable>
+
+          <Pressable
+            style={styles.linkButton}
+            onPress={handleResend}
+            disabled={resending}
+          >
+            <Text style={styles.linkText}>
+              {resending ? 'Sending...' : 'Resend OTP'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.linkButton}
+            onPress={() => navigation.navigate('Login')}
+          >
+            <Text style={styles.linkText}>Back to Login</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -912,6 +1178,61 @@ function CaregiverDashboardScreen({ navigation }: any) {
     }, [loadBookings]),
   );
 
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      loadBookings();
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [loadBookings]);
+
+  const pendingBookings = bookings.filter((booking) => booking.status === 'pending');
+  const upcomingBookings = bookings.filter((booking) => booking.status === 'accepted');
+  const activeBookings = bookings.filter((booking) => booking.status === 'in_progress');
+  const completedBookings = bookings.filter((booking) => booking.status === 'completed');
+
+  const renderBookingCard = (item: AssignedBooking) => (
+    <Pressable
+      key={item.id}
+      style={styles.bookingCard}
+      onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
+    >
+      <View style={styles.bookingCardHeader}>
+        <Text style={styles.listTitle}>Careseeker: {item.family_name ?? 'Unknown'}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+          <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
+        </View>
+      </View>
+      <Text style={styles.listSubtitle}>
+        {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'}
+        {item.start_time ? ` at ${item.start_time}` : ''}
+      </Text>
+      {item.check_in_time ? (
+        <Text style={[styles.listSubtitle, { color: '#16a34a' }]}>
+          ✓ Checked in: {new Date(item.check_in_time).toLocaleString()}
+        </Text>
+      ) : null}
+      {item.check_out_time ? (
+        <Text style={styles.listSubtitle}>
+          ✓ Checked out: {new Date(item.check_out_time).toLocaleString()}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+
+  const renderSection = (title: string, items: AssignedBooking[]) => {
+    if (items.length === 0) {
+      return null;
+    }
+
+    return (
+      <View style={styles.dashboardSection}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        {items.map(renderBookingCard)}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.homeHeader}>
@@ -925,7 +1246,7 @@ function CaregiverDashboardScreen({ navigation }: any) {
         </Pressable>
       </View>
 
-      <View style={styles.screenContent}>
+      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
         <View style={styles.homeInfoCard}>
           <Text style={styles.homeGreeting}>Hello, {user?.name ?? 'Caregiver'} 👋</Text>
           <Text style={styles.homeSubtitle}>Assigned bookings dashboard</Text>
@@ -934,31 +1255,16 @@ function CaregiverDashboardScreen({ navigation }: any) {
         {loading ? (
           <ActivityIndicator size="large" color="#22c55e" />
         ) : (
-          <FlatList
-            data={bookings}
-            keyExtractor={(item) => String(item.id)}
-            showsVerticalScrollIndicator={false}
-            ListEmptyComponent={<Text style={styles.mutedText}>No assigned bookings found.</Text>}
-            renderItem={({ item }) => (
-              <Pressable
-                style={styles.bookingCard}
-                onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
-              >
-                <View style={styles.bookingCardHeader}>
-                  <Text style={styles.listTitle}>Careseeker: {item.family_name ?? 'Unknown'}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-                    <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
-                  </View>
-                </View>
-                <Text style={styles.listSubtitle}>
-                  {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'}
-                  {item.start_time ? ` at ${item.start_time}` : ''}
-                </Text>
-              </Pressable>
-            )}
-          />
+          <View style={{ gap: 12 }}>
+            {renderSection(`🔴 New Requests (${pendingBookings.length})`, pendingBookings)}
+            {renderSection(`🟡 Upcoming (${upcomingBookings.length})`, upcomingBookings)}
+            {renderSection(`🟢 Active (${activeBookings.length})`, activeBookings)}
+            {renderSection(`✓ Completed (${completedBookings.length})`, completedBookings)}
+
+            {bookings.length === 0 ? <Text style={styles.mutedText}>No assigned bookings found.</Text> : null}
+          </View>
         )}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -970,6 +1276,10 @@ function BookingDetailScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isLocationSharing, setIsLocationSharing] = useState(false);
+  const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
+  const locationSendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const latestCoordsRef = useRef<Coordinates | null>(null);
 
   const now = new Date();
   const bookedDateTime = booking ? getBookingStartDateTime(booking) : null;
@@ -980,6 +1290,79 @@ function BookingDetailScreen({ route, navigation }: any) {
       booking.check_in_time &&
       booking.duration_hours &&
       now >= new Date(new Date(booking.check_in_time).getTime() + booking.duration_hours * 60 * 60 * 1000),
+  );
+
+  const stopLocationSharing = useCallback(() => {
+    if (locationWatcherRef.current) {
+      locationWatcherRef.current.remove();
+      locationWatcherRef.current = null;
+    }
+
+    if (locationSendIntervalRef.current) {
+      clearInterval(locationSendIntervalRef.current);
+      locationSendIntervalRef.current = null;
+    }
+
+    latestCoordsRef.current = null;
+    setIsLocationSharing(false);
+  }, []);
+
+  const startLocationSharing = useCallback(
+    async (activeBookingId: number, permissionAlreadyGranted: boolean = false) => {
+      if (!token) {
+        return;
+      }
+
+      if (locationWatcherRef.current || locationSendIntervalRef.current) {
+        setIsLocationSharing(true);
+        return;
+      }
+
+      if (!permissionAlreadyGranted) {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== 'granted') {
+          throw new Error('Location permission is required to share your live location.');
+        }
+      }
+
+      const initialLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      latestCoordsRef.current = {
+        latitude: initialLocation.coords.latitude,
+        longitude: initialLocation.coords.longitude,
+      };
+
+      await sendCaregiverLocation(token, activeBookingId, latestCoordsRef.current);
+
+      locationWatcherRef.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Balanced,
+          timeInterval: 10000,
+          distanceInterval: 0,
+        },
+        (position) => {
+          latestCoordsRef.current = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          };
+        },
+      );
+
+      locationSendIntervalRef.current = setInterval(() => {
+        if (!latestCoordsRef.current) {
+          return;
+        }
+
+        sendCaregiverLocation(token, activeBookingId, latestCoordsRef.current).catch((error) => {
+          console.log('Location send error', error);
+        });
+      }, 10000);
+
+      setIsLocationSharing(true);
+    },
+    [token],
   );
 
   const loadBooking = useCallback(async () => {
@@ -1014,12 +1397,45 @@ function BookingDetailScreen({ route, navigation }: any) {
     }, [loadBooking]),
   );
 
+  useEffect(() => {
+    if (!booking) {
+      stopLocationSharing();
+      return;
+    }
+
+    if (booking.status === 'in_progress') {
+      startLocationSharing(booking.id).catch((error) => {
+        const message = error instanceof Error ? error.message : 'Unable to start location sharing.';
+        Alert.alert('Location sharing', message);
+      });
+      return;
+    }
+
+    stopLocationSharing();
+  }, [booking?.id, booking?.status, startLocationSharing, stopLocationSharing]);
+
+  useEffect(() => {
+    return () => {
+      stopLocationSharing();
+    };
+  }, [stopLocationSharing]);
+
   const handleStatusUpdate = async (nextStatus: 'accepted' | 'rejected' | 'in_progress' | 'completed') => {
     if (!token || !booking) return;
 
     if (nextStatus === 'completed' && !canCheckOutByDuration) {
       Alert.alert('Too early', 'You cannot check out before the service duration is complete');
       return;
+    }
+
+    let permissionGrantedForCheckIn = false;
+    if (nextStatus === 'in_progress') {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission denied', 'Location permission is required to share live location.');
+        return;
+      }
+      permissionGrantedForCheckIn = true;
     }
 
     setStatusUpdating(true);
@@ -1037,8 +1453,10 @@ function BookingDetailScreen({ route, navigation }: any) {
       } else if (nextStatus === 'rejected') {
         Alert.alert('Success', 'Booking Rejected');
       } else if (nextStatus === 'in_progress') {
+        await startLocationSharing(updated.id, permissionGrantedForCheckIn);
         Alert.alert('Success', 'Checked in successfully.');
       } else {
+        stopLocationSharing();
         Alert.alert('Success', 'Checked out successfully.');
       }
     } catch (error) {
@@ -1108,14 +1526,64 @@ function BookingDetailScreen({ route, navigation }: any) {
             <Text style={styles.heading}>Booking Detail</Text>
             <Text style={styles.listSubtitle}>Careseeker: {booking.family_name ?? 'Unknown'}</Text>
             <Text style={styles.listSubtitle}>Contact: {booking.emergency_contact_phone ?? 'N/A'}</Text>
+            {booking.emergency_contact_phone ? (
+              <Pressable
+                onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  backgroundColor: '#dcfce7',
+                  padding: 10,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ fontSize: 18 }}>📞</Text>
+                <Text style={{ color: '#166534', fontWeight: '600' }}>Call Caregiver: {booking.emergency_contact_phone}</Text>
+              </Pressable>
+            ) : null}
             <Text style={styles.listSubtitle}>
               Service: {booking.date ? new Date(booking.date).toLocaleDateString() : 'N/A'} {booking.start_time ?? ''}
             </Text>
             <Text style={styles.listSubtitle}>Location: {booking.service_address ?? 'Address unavailable'}</Text>
+            {booking.check_in_time ? (
+              <Text style={[styles.listSubtitle, { color: '#16a34a' }]}>
+                ✓ Checked in: {new Date(booking.check_in_time).toLocaleString()}
+              </Text>
+            ) : null}
+            {booking.check_out_time ? (
+              <Text style={styles.listSubtitle}>
+                ✓ Checked out: {new Date(booking.check_out_time).toLocaleString()}
+              </Text>
+            ) : null}
 
             <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status), alignSelf: 'flex-start' }]}>
               <Text style={styles.statusBadgeText}>{getStatusLabel(booking.status)}</Text>
             </View>
+
+            {booking.emergency_contact_phone ? (
+              <Pressable
+                onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  backgroundColor: '#dcfce7',
+                  padding: 10,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ fontSize: 18 }}>📞</Text>
+                <Text style={{ color: '#166534', fontWeight: '600' }}>Call Careseeker: {booking.emergency_contact_phone}</Text>
+              </Pressable>
+            ) : null}
+
+            {booking.status === 'in_progress' && isLocationSharing ? (
+              <View style={styles.locationSharingRow}>
+                <View style={styles.locationSharingDot} />
+                <Text style={styles.locationSharingText}>Sharing location with careseeker</Text>
+              </View>
+            ) : null}
 
             {booking.status === 'pending' ? (
               <View style={styles.actionRow}>
@@ -1186,6 +1654,7 @@ function BookingDetailScreen({ route, navigation }: any) {
                 <Text style={styles.completedBadgeText}>Completed</Text>
               </View>
             ) : null}
+
           </View>
         )}
       </ScrollView>
@@ -1229,6 +1698,14 @@ function CareseekerDashboardScreen({ navigation }: any) {
     }, [loadBookings]),
   );
 
+  useEffect(() => {
+    const intervalId = setInterval(() => {
+      loadBookings();
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [loadBookings]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.homeHeader}>
@@ -1253,7 +1730,7 @@ function CareseekerDashboardScreen({ navigation }: any) {
             <Text style={styles.mutedText}>No bookings found.</Text>
           ) : (
             <FlatList
-              data={bookings.slice(0, 3)}
+              data={bookings}
               keyExtractor={(item) => String(item.id)}
               scrollEnabled={false}
               renderItem={({ item }) => (
@@ -1263,8 +1740,11 @@ function CareseekerDashboardScreen({ navigation }: any) {
                     onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
                   >
                     <View style={styles.bookingCardHeader}>
-                      <Text style={styles.listTitle}>Caregiver: {item.caregiver_name ?? 'Unknown'}</Text>
-                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}> 
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text style={styles.listTitle}>Caregiver: {item.caregiver_name ?? 'Unknown'}</Text>
+                        <Text style={styles.listSubtitle}>{getCareseekerBookingStatusText(item)}</Text>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
                         <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
                       </View>
                     </View>
@@ -1272,6 +1752,12 @@ function CareseekerDashboardScreen({ navigation }: any) {
                       {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'}
                       {item.start_time ? ` at ${item.start_time}` : ''}
                     </Text>
+                    {item.status === 'in_progress' ? (
+                      <View style={styles.inProgressRow}>
+                        <PulsingDot />
+                        <Text style={styles.inProgressText}>Live tracking active</Text>
+                      </View>
+                    ) : null}
                   </Pressable>
 
                   {item.status === 'in_progress' ? (
@@ -1311,6 +1797,18 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   const [booking, setBooking] = useState<AssignedBooking | null>(null);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [caregiverLocation, setCaregiverLocation] = useState<Coordinates | null>(null);
+  const [selfLocation, setSelfLocation] = useState<Coordinates | null>(null);
+  const [caregiverUpdatedAt, setCaregiverUpdatedAt] = useState<string | null>(null);
+  const [locationClockMs, setLocationClockMs] = useState(Date.now());
+  const [distance, setDistance] = useState<number | null>(null);
+  const [showFullImage, setShowFullImage] = useState(false);
+  const [showRating, setShowRating] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [reviewText, setReviewText] = useState('');
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const mapRef = useRef<MapView | null>(null);
 
   const loadBooking = useCallback(async () => {
     if (!token || !bookingId) return;
@@ -1334,6 +1832,145 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
       const intervalId = setInterval(loadBooking, 10000);
       return () => clearInterval(intervalId);
     }, [loadBooking]),
+  );
+
+  const loadLiveLocation = useCallback(async () => {
+    if (!token || !booking || booking.status !== 'in_progress') {
+      return;
+    }
+
+    try {
+      const data = await fetchCaregiverLocation(token, booking.id);
+      if (data.is_available && typeof data.latitude === 'number' && typeof data.longitude === 'number') {
+        setCaregiverLocation({
+          latitude: data.latitude,
+          longitude: data.longitude,
+        });
+        setCaregiverUpdatedAt(data.updated_at);
+      } else {
+        setCaregiverLocation(null);
+        setCaregiverUpdatedAt(null);
+      }
+    } catch (error) {
+      console.log('Caregiver location fetch failed', error);
+    }
+  }, [booking, token]);
+
+  const submitRating = async () => {
+    if (!token || !booking) return;
+
+    setSubmittingRating(true);
+    try {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/reviews/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          booking_id: booking.id,
+          rating,
+          comment: reviewText,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseError(response));
+      }
+
+      setRatingSubmitted(true);
+      setShowRating(false);
+      Alert.alert('Thank You! ⭐', 'Your review has been submitted successfully.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to submit review.';
+      Alert.alert('Error', message);
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!booking || booking.status !== 'in_progress') {
+      setCaregiverLocation(null);
+      setCaregiverUpdatedAt(null);
+      setDistance(null);
+      return;
+    }
+
+    loadLiveLocation();
+    const intervalId = setInterval(loadLiveLocation, 10000);
+
+    return () => clearInterval(intervalId);
+  }, [booking?.status, booking?.id, loadLiveLocation]);
+
+  useEffect(() => {
+    if (!booking || booking.status !== 'in_progress' || selfLocation) {
+      return;
+    }
+
+    const fetchSelfLocation = async () => {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status !== 'granted') {
+          return;
+        }
+
+        const currentLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+
+        setSelfLocation({
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
+        });
+      } catch (error) {
+        console.log('Self location fetch failed', error);
+      }
+    };
+
+    fetchSelfLocation();
+  }, [booking?.status, selfLocation]);
+
+  useEffect(() => {
+    if (!booking || booking.status !== 'in_progress') {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      setLocationClockMs(Date.now());
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [booking?.status]);
+
+  useEffect(() => {
+    if (!mapRef.current || !caregiverLocation || !selfLocation) {
+      return;
+    }
+
+    const dist = getDistanceKm(
+      selfLocation.latitude,
+      selfLocation.longitude,
+      caregiverLocation.latitude,
+      caregiverLocation.longitude,
+    );
+    setDistance(dist);
+
+    mapRef.current.fitToCoordinates([caregiverLocation, selfLocation], {
+      edgePadding: { top: 40, right: 40, bottom: 40, left: 40 },
+      animated: true,
+    });
+  }, [caregiverLocation, selfLocation]);
+
+  useEffect(() => {
+    if (booking?.status === 'completed' && !ratingSubmitted) {
+      setShowRating(true);
+    }
+  }, [booking?.status, ratingSubmitted]);
+
+  const caregiverUpdatedLabel = useMemo(
+    () => getUpdatedAgoLabel(caregiverUpdatedAt, locationClockMs),
+    [caregiverUpdatedAt, locationClockMs],
   );
 
   const handleConfirmCompletion = async () => {
@@ -1379,14 +2016,166 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
             <Text style={styles.heading}>Booking Detail</Text>
             <Text style={styles.listSubtitle}>Caregiver: {booking.caregiver_name ?? 'Unknown'}</Text>
             <Text style={styles.listSubtitle}>Contact: {booking.emergency_contact_phone ?? 'N/A'}</Text>
+            {booking.emergency_contact_phone ? (
+              <Pressable
+                onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                  backgroundColor: '#dcfce7',
+                  padding: 10,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ fontSize: 18 }}>📞</Text>
+                <Text style={{ color: '#166534', fontWeight: '600' }}>Call Careseeker: {booking.emergency_contact_phone}</Text>
+              </Pressable>
+            ) : null}
             <Text style={styles.listSubtitle}>
               Service: {booking.date ? new Date(booking.date).toLocaleDateString() : 'N/A'} {booking.start_time ?? ''}
             </Text>
             <Text style={styles.listSubtitle}>Location: {booking.service_address ?? 'Address unavailable'}</Text>
 
+            {booking.check_in_time ? (
+              <Text style={[styles.listSubtitle, { color: '#16a34a' }]}>
+                ✓ Checked in: {new Date(booking.check_in_time).toLocaleString()}
+              </Text>
+            ) : null}
+
+            {booking.check_out_time ? (
+              <Text style={styles.listSubtitle}>
+                ✓ Checked out: {new Date(booking.check_out_time).toLocaleString()}
+              </Text>
+            ) : null}
+
+            {booking.proof_image ? (
+              <View style={{
+                backgroundColor: '#ffffff',
+                borderRadius: 12,
+                padding: 16,
+                gap: 8,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.06,
+                shadowRadius: 8,
+                elevation: 2,
+              }}>
+                <Text style={styles.sectionTitle}>Service Proof</Text>
+                <Pressable onPress={() => setShowFullImage(true)}>
+                  <Image source={{ uri: booking.proof_image }} style={styles.previewImage} resizeMode="cover" />
+                  <Text style={styles.mutedText}>Tap to view full screen</Text>
+                </Pressable>
+              </View>
+            ) : booking.status === 'in_progress' ? (
+              <View style={{
+                padding: 16,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#dcfce7',
+                alignItems: 'center',
+              }}>
+                <Text style={styles.mutedText}>Waiting for caregiver proof...</Text>
+              </View>
+            ) : null}
+
             <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status), alignSelf: 'flex-start' }]}>
               <Text style={styles.statusBadgeText}>{getStatusLabel(booking.status)}</Text>
             </View>
+
+            {distance !== null && booking.status === 'in_progress' ? (
+              <Text style={{
+                color: distance < 0.1 ? '#16a34a' : '#1e3a5f',
+                fontWeight: '700',
+                fontSize: 14,
+                textAlign: 'center',
+                marginBottom: 6,
+              }}>
+                {distance < 0.1 ? 'Your caregiver has arrived' : `Your caregiver is ${distance.toFixed(1)} km away`}
+              </Text>
+            ) : null}
+
+            {booking.status === 'in_progress' ? (
+              <View style={styles.liveLocationPanel}>
+                <View style={styles.liveLocationHeader}>
+                  <View style={styles.locationSharingDot} />
+                  <Text style={styles.liveLocationTitle}>Caregiver is on the way</Text>
+                </View>
+                <Text style={styles.liveLocationUpdatedText}>{caregiverUpdatedLabel}</Text>
+
+                {caregiverLocation && selfLocation ? (
+                  <MapView
+                    ref={(ref) => {
+                      mapRef.current = ref;
+                    }}
+                    style={styles.liveLocationMap}
+                    initialRegion={{
+                      latitude: (caregiverLocation.latitude + selfLocation.latitude) / 2,
+                      longitude: (caregiverLocation.longitude + selfLocation.longitude) / 2,
+                      latitudeDelta: 0.02,
+                      longitudeDelta: 0.02,
+                    }}
+                    scrollEnabled={false}
+                    zoomEnabled={false}
+                    rotateEnabled={false}
+                    pitchEnabled={false}
+                  >
+                    <Marker coordinate={selfLocation} title="You" />
+                    <Marker coordinate={caregiverLocation} title="Your Caregiver" />
+                  </MapView>
+                ) : caregiverLocation ? (
+                  <View style={styles.waitingLocationBox}>
+                    <Text style={styles.mutedText}>Getting your location for map view...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.waitingLocationBox}>
+                    <Text style={styles.mutedText}>Waiting for caregiver location...</Text>
+                  </View>
+                )}
+              </View>
+            ) : null}
+
+            {booking.status === 'in_progress' ? (
+              <View style={{
+                backgroundColor: '#fff7ed',
+                borderRadius: 12,
+                padding: 16,
+                gap: 12,
+                borderWidth: 1,
+                borderColor: '#fed7aa',
+              }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e3a5f' }}>Help & Safety</Text>
+                <Text style={{ fontSize: 13, color: '#64748b' }}>
+                  {booking.caregiver_name ?? 'Your caregiver'} is currently providing your service.
+                </Text>
+
+                {booking.emergency_contact_phone ? (
+                  <Pressable
+                    onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
+                    style={{
+                      backgroundColor: '#dcfce7',
+                      borderRadius: 8,
+                      padding: 12,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={{ fontSize: 18 }}>📞</Text>
+                    <Text style={{ color: '#166534', fontWeight: '600' }}>Call Caregiver</Text>
+                  </Pressable>
+                ) : null}
+
+                <EmergencyAlertButton
+                  subtitle="Sends alert to admin and caregiver immediately"
+                  onPress={handleEmergencyPress}
+                />
+              </View>
+            ) : null}
+
+            {booking.status === 'completed' ? (
+              <Text style={styles.inlineInfoText}>Service completed</Text>
+            ) : null}
 
             {booking.status === 'completion_requested' ? (
               <Pressable
@@ -1403,15 +2192,95 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                 <Text style={styles.completedBadgeText}>Completed</Text>
               </View>
             ) : null}
-
-            {booking.status === 'in_progress' ? (
-              <EmergencyAlertButton
-                subtitle={`Caregiver: ${booking.caregiver_name ?? 'Unknown'} is currently with you`}
-                onPress={handleEmergencyPress}
-              />
-            ) : null}
           </View>
         )}
+
+        {showFullImage && booking?.proof_image ? (
+          <Modal visible={showFullImage} transparent>
+            <View style={{
+              flex: 1,
+              backgroundColor: 'rgba(0,0,0,0.95)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}>
+              <Pressable
+                onPress={() => setShowFullImage(false)}
+                style={{
+                  position: 'absolute',
+                  top: 50,
+                  right: 20,
+                  padding: 10,
+                  zIndex: 10,
+                }}
+              >
+                <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '700' }}>✕ Close</Text>
+              </Pressable>
+              <Image
+                source={{ uri: booking.proof_image }}
+                style={{ width: '100%', height: '80%' }}
+                resizeMode="contain"
+              />
+            </View>
+          </Modal>
+        ) : null}
+
+        {showRating && !ratingSubmitted ? (
+          <Modal visible={showRating} transparent animationType="slide">
+            <View style={{
+              flex: 1,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              justifyContent: 'flex-end',
+            }}>
+              <View style={{
+                backgroundColor: '#ffffff',
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 24,
+                gap: 16,
+              }}>
+                <Text style={{ fontSize: 20, fontWeight: '700', color: '#1e3a5f', textAlign: 'center' }}>
+                  Rate Your Experience
+                </Text>
+                <Text style={{ color: '#64748b', textAlign: 'center' }}>
+                  How was {booking?.caregiver_name ?? 'your caregiver'}?
+                </Text>
+
+                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <Pressable key={star} onPress={() => setRating(star)}>
+                      <Text style={{ fontSize: 36 }}>{star <= rating ? '⭐' : '☆'}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Write a review (optional)"
+                  value={reviewText}
+                  onChangeText={setReviewText}
+                  multiline
+                  numberOfLines={3}
+                  placeholderTextColor="#cbd5e1"
+                />
+
+                <Pressable
+                  style={[
+                    styles.primaryButton,
+                    (rating === 0 || submittingRating) && styles.primaryButtonDisabled,
+                  ]}
+                  disabled={rating === 0 || submittingRating}
+                  onPress={submitRating}
+                >
+                  {submittingRating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Submit Review</Text>}
+                </Pressable>
+
+                <Pressable style={styles.linkButton} onPress={() => setShowRating(false)}>
+                  <Text style={styles.linkText}>Skip for now</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Modal>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -1791,6 +2660,7 @@ function RootNavigator() {
         <>
           <RootStack.Screen name="Login" component={LoginScreen} />
           <RootStack.Screen name="Signup" component={SignupScreen} />
+          <RootStack.Screen name="OTPVerification" component={OTPVerificationScreen} />
         </>
       )}
     </RootStack.Navigator>
@@ -2280,15 +3150,90 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1e3a5f',
   },
+  dashboardSection: {
+    gap: 10,
+  },
   listSubtitle: {
     color: '#64748b',
     marginTop: 2,
     fontSize: 13,
   },
+  inProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  inProgressText: {
+    color: '#166534',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  pulsingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#16a34a',
+  },
   inlineInfoText: {
     color: '#475569',
     fontSize: 13,
     marginTop: 6,
+  },
+  locationSharingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  locationSharingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#16a34a',
+  },
+  locationSharingText: {
+    color: '#166534',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  liveLocationPanel: {
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: '#f8fff9',
+    gap: 6,
+  },
+  liveLocationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  liveLocationTitle: {
+    color: '#166534',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  liveLocationUpdatedText: {
+    color: '#475569',
+    fontSize: 12,
+  },
+  liveLocationMap: {
+    width: '100%',
+    height: 250,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  waitingLocationBox: {
+    height: 120,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dcfce7',
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
   },
   previewImage: {
     width: '100%',

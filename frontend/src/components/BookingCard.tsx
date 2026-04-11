@@ -40,7 +40,7 @@ export interface BookingCardProps {
   onConfirmCompletion?: (bookingId: number) => void;
   onRate?: (booking: Booking) => void;
   onPay?: (bookingId: number, totalAmount?: string | null | undefined) => void;
-  onFileComplaint?: (bookingId: number, caregiverName: string) => void;
+  onFileComplaint?: (bookingId: number, familyName: string, caregiverName: string) => void;
   hasActiveComplaint?: boolean;
   paymentLoading?: number | null;
   payClicked?: number | null;
@@ -300,14 +300,18 @@ const BookingCard: React.FC<BookingCardProps> = ({
         <div className="flex justify-between items-end gap-3 mt-4">
           {/* Left side: Complaints */}
           <div>
-            {onFileComplaint && (
+            {onFileComplaint && status !== "pending" && (
               hasActiveComplaint ? (
                 <span className="px-4 py-1.5 text-xs font-semibold text-amber-700 bg-amber-100 rounded-lg">
                   Complaint Pending
                 </span>
               ) : (
                 <button
-                  onClick={() => onFileComplaint(booking.id, displayName)}
+                  onClick={() => 
+                    isCaregiverView 
+                      ? onFileComplaint(booking.id, booking.family_name || "", booking.caregiver_name || "")
+                      : onFileComplaint(booking.id, booking.caregiver_name || "")
+                  }
                   className="px-4 py-1.5 text-xs font-medium text-red-600 border border-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 >
                   File Complaint
