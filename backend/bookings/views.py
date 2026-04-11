@@ -416,3 +416,82 @@ class BookingProofUploadView(APIView):
         booking.save(update_fields=["proof_image"])
 
         return Response(BookingSerializer(booking, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+class BookingUpdateLocationView(APIView):
+    """Assigned caregiver updates live location while service is in progress."""
+    permission_classes = [IsAuthenticated, IsCaregiver]
+
+    def patch(self, request, pk):
+        try:
+            booking = Booking.objects.get(pk=pk, caregiver=request.user)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.status != "in_progress":
+            return Response(
+                {"error": "Location updates are only allowed when booking is in_progress."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            latitude = float(request.data.get("latitude"))
+            longitude = float(request.data.get("longitude"))
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "latitude and longitude are required numeric fields."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        booking.caregiver_latitude = latitude
+        booking.caregiver_longitude = longitude
+        booking.location_updated_at = timezone.now()
+        booking.save(update_fields=["caregiver_latitude", "caregiver_longitude", "location_updated_at"])
+
+        return Response(
+            {
+                "latitude": float(booking.caregiver_latitude),
+                "longitude": float(booking.caregiver_longitude),
+                "updated_at": booking.location_updated_at,
+                "is_available": True,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class BookingCaregiverLocationView(APIView):
+    """Careseeker reads caregiver live location for their booking."""
+    permission_classes = [IsAuthenticated, IsCareSeeker]
+
+    def get(self, request, pk):
+        try:
+            booking = Booking.objects.get(pk=pk, family=request.user)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        has_location = (
+            booking.caregiver_latitude is not None
+            and booking.caregiver_longitude is not None
+            and booking.location_updated_at is not None
+        )
+
+        if not has_location:
+            return Response(
+                {
+                    "latitude": None,
+                    "longitude": None,
+                    "updated_at": None,
+                    "is_available": False,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "latitude": float(booking.caregiver_latitude),
+                "longitude": float(booking.caregiver_longitude),
+                "updated_at": booking.location_updated_at,
+                "is_available": True,
+            },
+            status=status.HTTP_200_OK,
+        )

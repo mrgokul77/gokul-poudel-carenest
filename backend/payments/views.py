@@ -10,7 +10,6 @@ from .models import Payment
 from .serializers import (
     PaymentSerializer,
     PaymentListSerializer,
-    KhaltiInitiateSerializer,
     KhaltiVerifySerializer,
 )
 
@@ -41,10 +40,6 @@ class InitiateKhaltiPaymentView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        # TODO: clean up all these debug print statements later
-        print("DEBUG - Incoming request data:", request.data)
-        print("DEBUG - Content-Type:", request.content_type)
-        
         booking_id = request.data.get("booking_id")
         if booking_id is None:
             return Response(
@@ -93,7 +88,7 @@ class InitiateKhaltiPaymentView(APIView):
             )
 
         # Delete any existing pending Payment for this booking
-        Payment.objects.filter(booking=booking, status="pending").delete()
+        Payment.objects.filter(booking, status="pending").delete()
 
         # Check if payment already exists and is completed
         try:

@@ -392,3 +392,46 @@ class BookingStatusUpdateSerializer(serializers.Serializer):
 
 class BookingProofUploadSerializer(serializers.Serializer):
     proof_image = serializers.ImageField(required=True, use_url=False)
+
+
+def _booking_serializer_get_proof_image(self, obj):
+    request = self.context.get("request")
+    if getattr(obj, "proof_image", None):
+        try:
+            if request:
+                return request.build_absolute_uri(obj.proof_image.url)
+            return obj.proof_image.url
+        except Exception:
+            return None
+    return None
+
+
+def _booking_serializer_get_caregiver_latitude(self, obj):
+    try:
+        value = getattr(obj, "caregiver_latitude", None)
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _booking_serializer_get_caregiver_longitude(self, obj):
+    try:
+        value = getattr(obj, "caregiver_longitude", None)
+        return float(value) if value is not None else None
+    except Exception:
+        return None
+
+
+BookingSerializer.proof_image = serializers.SerializerMethodField()
+BookingSerializer.get_proof_image = _booking_serializer_get_proof_image
+BookingSerializer.caregiver_latitude = serializers.SerializerMethodField()
+BookingSerializer.get_caregiver_latitude = _booking_serializer_get_caregiver_latitude
+BookingSerializer.caregiver_longitude = serializers.SerializerMethodField()
+BookingSerializer.get_caregiver_longitude = _booking_serializer_get_caregiver_longitude
+
+if hasattr(BookingSerializer, "Meta") and hasattr(BookingSerializer.Meta, "fields"):
+    _booking_fields = list(BookingSerializer.Meta.fields)
+    for _extra_field in ("caregiver_latitude", "caregiver_longitude"):
+        if _extra_field not in _booking_fields:
+            _booking_fields.append(_extra_field)
+    BookingSerializer.Meta.fields = _booking_fields

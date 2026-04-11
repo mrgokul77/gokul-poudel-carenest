@@ -13,6 +13,24 @@ from bookings.models import Booking
 from payments.models import Payment
 
 
+def send_mobile_push(user, title, body, data={}):
+    try:
+        from notifications.models import PushToken
+        tokens = PushToken.objects.filter(user=user)
+        for token_obj in tokens:
+            try:
+                send_push_notification(
+                    token_obj.push_token,
+                    title,
+                    body,
+                    data,
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _get_user_push_token(user):
     """Resolve the most recent saved push token for a user."""
     if not user:
@@ -153,6 +171,54 @@ def on_booking_change(instance, created, **kwargs):
         )
 
 
+@receiver(post_save, sender=Booking)
+def on_booking_mobile_push(instance, created, **kwargs):
+    try:
+        booking = instance
+        booking_data = {"booking_id": booking.id}
+
+        if created or getattr(booking, "_previous_status", None) == booking.status:
+            return
+
+        if booking.status == 'pending':
+            send_mobile_push(
+                booking.caregiver,
+                "New Booking Request 📋",
+                f"New booking request for {booking.date}",
+                booking_data,
+            )
+        elif booking.status == 'accepted':
+            send_mobile_push(
+                booking.family,
+                "Booking Accepted ✓",
+                "Your caregiver accepted your booking",
+                booking_data,
+            )
+        elif booking.status == 'rejected':
+            send_mobile_push(
+                booking.family,
+                "Booking Rejected",
+                "Your booking was rejected",
+                booking_data,
+            )
+        elif booking.status == 'in_progress':
+            send_mobile_push(
+                booking.family,
+                "🏃 Caregiver Has Arrived!",
+                "Your caregiver has checked in",
+                booking_data,
+            )
+        elif booking.status == 'completed':
+            send_mobile_push(
+                booking.family,
+                "✓ Service Completed",
+                "Please rate your caregiver",
+                booking_data,
+            )
+    except Exception:
+        pass
+
+
 def _display_username(user):
     """Short label for notifications (User has no first/last name)."""
     if user is None:
@@ -195,6 +261,57 @@ def on_payment_change(instance, created, update_fields, **kwargs):
                 ),
                 instance.id,
             )
+
+
+@receiver(post_save)
+def on_emergency_mobile_push(sender, instance, created, **kwargs):
+    try:
+        from accounts.models import Emergency
+        if sender is not Emergency or not created:
+            return
+
+        emergency = instance
+
+        def send_emergency_push(user, title, body, data):
+            tokens = []
+            try:
+                from notifications.models import PushToken
+                tokens = PushToken.objects.filter(user=user)
+            except Exception:
+                tokens = []
+
+            for token_obj in tokens:
+                try:
+                    send_push_notification(token_obj.push_token, title, body, data)
+                except Exception:
+                    pass
+
+        emergency_data = {"emergency_id": emergency.id, "booking_id": emergency.booking_id}
+
+        admins = []
+        try:
+            from accounts.models import User
+            admins = User.objects.filter(role='admin')
+        except Exception:
+            admins = []
+
+        for admin in admins:
+            send_emergency_push(
+                admin,
+                "🚨 EMERGENCY ALERT",
+                f"Emergency for booking #{emergency.booking_id}",
+                emergency_data,
+            )
+
+        if emergency.booking and emergency.booking.caregiver:
+            send_emergency_push(
+                emergency.booking.caregiver,
+                "⚠ Emergency - Action Required",
+                "Your careseeker needs immediate help",
+                emergency_data,
+            )
+    except Exception:
+        pass
         if booking and booking.caregiver:
             payer = family_name or "the care seeker"
             _create_and_broadcast(

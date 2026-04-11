@@ -47,6 +47,9 @@ class Booking(models.Model):
     service_address = models.CharField(max_length=255, blank=True)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
+    caregiver_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    caregiver_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    location_updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
