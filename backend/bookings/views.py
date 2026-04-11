@@ -6,7 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from .permissions import IsCareSeeker
 from django.utils import timezone
 from django.conf import settings
-from datetime import timedelta
+from datetime import datetime, timedelta
 from accounts.models import User, CaregiverProfile, UserActivity
 from verifications.models import CaregiverVerification
 from .models import Booking
@@ -79,6 +79,44 @@ def caregiver_has_overlap(caregiver_id, date, start_time, duration_hours, exclud
             return True
     
     return False
+
+
+def check_caregiver_overlap(caregiver, booking):
+    try:
+        new_date = booking.date
+        new_start = datetime.strptime(
+            f"{new_date} {str(booking.start_time)[:5]}",
+            "%Y-%m-%d %H:%M",
+        )
+        new_end = new_start + timedelta(
+            hours=float(booking.duration_hours or 1)
+        )
+
+        # Only compare against already accepted/in-progress bookings on the same date.
+        existing = Booking.objects.filter(
+            caregiver=caregiver,
+            date=new_date,
+            status__in=["accepted", "in_progress"],
+        ).exclude(id=booking.id)
+
+        for b in existing:
+            try:
+                b_start = datetime.strptime(
+                    f"{b.date} {str(b.start_time)[:5]}",
+                    "%Y-%m-%d %H:%M",
+                )
+                b_end = b_start + timedelta(
+                    hours=float(b.duration_hours or 1)
+                )
+
+                if new_start < b_end and new_end > b_start:
+                    return True, b.id
+            except Exception:
+                continue
+
+        return False, None
+    except Exception:
+        return False, None
 
 
 class VerifiedCaregiverListView(APIView):
@@ -369,6 +407,23 @@ class BookingUpdateStatusView(APIView):
         event_time = serializer.validated_data["parsed_timestamp"]
 
         if requested_status == "accepted":
+            try:
+                has_overlap, conflict_id = check_caregiver_overlap(
+                    booking.caregiver, booking
+                )
+                if has_overlap:
+                    return Response(
+                        {
+                            "error": (
+                                f"You already have an accepted booking (#{conflict_id}) "
+                                "that overlaps with this time slot. Please complete "
+                                "or reject that booking first before accepting this one."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except Exception:
+                pass
             booking.status = "accepted"
         elif requested_status == "rejected":
             booking.status = "rejected"
