@@ -25,6 +25,7 @@ import CareseekerBookings from "./pages/CareseekerBookings";
 import MyComplaints from "./pages/careseeker/MyComplaints";
 import PaymentVerify from "./pages/PaymentVerify";
 import PaymentHistoryPage from "./pages/PaymentHistoryPage";
+import FavouritesPage from "./pages/FavouritesPage";
 
 
 import Profile from "./pages/Profile";
@@ -185,6 +186,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["careseeker"]}>
               <MyComplaints />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/favourites"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker"]}>
+              <FavouritesPage />
             </ProtectedRoute>
           }
         />

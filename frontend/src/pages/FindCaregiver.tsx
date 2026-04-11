@@ -19,6 +19,7 @@ import {
   MessageCircle,
   ChevronLeft,
   ChevronRight,
+  Heart,
 } from "lucide-react";
 
 interface Caregiver {
@@ -129,6 +130,8 @@ const FindCaregiver = () => {
   const [_profileModalError, _setProfileModalError] = useState<string | null>(
     null,
   );
+  const [isFavourite, setIsFavourite] = useState(false);
+  const [favouriteMessage, setFavouriteMessage] = useState("");
   const [bookingForm, setBookingForm] = useState<BookingFormData>({
     service_types: [],
     person_name: "",
@@ -350,6 +353,56 @@ const FindCaregiver = () => {
     setProfileModalUserId(null);
     setProfileModalData(null);
     setSelectedCaregiver(null);
+    setIsFavourite(false);
+    setFavouriteMessage("");
+  };
+
+  useEffect(() => {
+    if (!profileModalUserId || !selectedCaregiver) {
+      setIsFavourite(false);
+      return;
+    }
+
+    const saved = JSON.parse(
+      localStorage.getItem("favourite_caregivers") || "[]",
+    ) as Array<{ id: number }>;
+    const exists = saved.some((f) => f.id === selectedCaregiver.user_id);
+    setIsFavourite(exists);
+  }, [profileModalUserId, selectedCaregiver]);
+
+  const toggleFavourite = (caregiver: Caregiver) => {
+    const saved = JSON.parse(
+      localStorage.getItem("favourite_caregivers") || "[]",
+    ) as Array<{
+      id: number;
+      name?: string;
+      profile_photo?: string | null;
+      rating?: number | null;
+      service_type?: string[];
+    }>;
+
+    if (isFavourite) {
+      const updated = saved.filter((f) => f.id !== caregiver.user_id);
+      localStorage.setItem("favourite_caregivers", JSON.stringify(updated));
+      setIsFavourite(false);
+      setFavouriteMessage("Removed from favourites");
+      return;
+    }
+
+    const updated = [
+      ...saved,
+      {
+        id: caregiver.user_id,
+        name: caregiver.username,
+        profile_photo: caregiver.profile_image,
+        rating: caregiver.average_rating,
+        service_type: caregiver.service_types,
+      },
+    ];
+
+    localStorage.setItem("favourite_caregivers", JSON.stringify(updated));
+    setIsFavourite(true);
+    setFavouriteMessage("Added to My Favourites ❤️");
   };
 
   const submitBooking = async () => {
@@ -915,6 +968,20 @@ const FindCaregiver = () => {
             >
               <X className="w-5 h-5" />
             </button>
+            {selectedCaregiver && (
+              <button
+                type="button"
+                onClick={() => toggleFavourite(selectedCaregiver)}
+                className={`absolute top-3 right-12 p-2 rounded-full transition-all ${
+                  isFavourite
+                    ? "text-red-500 bg-red-50"
+                    : "text-gray-400 bg-gray-100 hover:bg-red-50 hover:text-red-400"
+                }`}
+                title={isFavourite ? "Remove from favourites" : "Add to favourites"}
+              >
+                <Heart size={20} className={isFavourite ? "fill-red-500" : ""} />
+              </button>
+            )}
             {profileModalLoading ? (
               <div className="bg-green-50 border border-gray-200 rounded-xl overflow-hidden shadow-md flex items-center justify-center min-h-[200px]">
                 <div className="h-10 w-10 animate-spin rounded-full border-2 border-gray-300 border-t-green-600" />
@@ -922,6 +989,11 @@ const FindCaregiver = () => {
             ) : (
               <>
                 <CaregiverProfileCard profile={profileModalData} />
+                {favouriteMessage && (
+                  <div className="bg-green-50 border border-gray-200 border-t-0 px-6 py-3 text-sm text-gray-700">
+                    {favouriteMessage}
+                  </div>
+                )}
                 {/* Request Care button at the bottom of the modal */}
                 {selectedCaregiver && (
                   <div className="bg-green-50 border border-t-0 border-gray-200 rounded-b-xl px-6 py-4 flex justify-end gap-2 -mt-px">

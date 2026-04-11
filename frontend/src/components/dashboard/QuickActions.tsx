@@ -9,6 +9,7 @@ import {
   Megaphone,
   AlertCircle,
   Siren,
+  Heart,
 } from "lucide-react";
 import { useNotificationsContext } from "../../context/NotificationsContext";
 
@@ -104,6 +105,13 @@ const QuickActions = ({
       to: "/announcements",
       label: "Announcements",
       icon: Megaphone,
+    },
+    {
+      key: "favourites",
+      type: "link",
+      to: "/favourites",
+      label: "My Favourites",
+      icon: Heart,
     },
   ];
 
