@@ -5,5 +5,5 @@ from notifications.models import PushToken
 
 @admin.register(PushToken)
 class PushTokenAdmin(admin.ModelAdmin):
-    list_display = ['user', 'push_token', 'updated_at']
-    search_fields = ['user__email', 'push_token']
+    list_display = ['user', 'token', 'updated_at']
+    search_fields = ['user__email', 'token']
