@@ -34,18 +34,16 @@ const FavouritesPage = () => {
       <Navbar />
 
       <div className="max-w-3xl mx-auto px-6 py-8">
-        <div className="bg-green-50 border border-gray-200 shadow-sm rounded-xl p-8">
-          <div className="text-center">
-            <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-700 mb-4">
-              <Heart className="h-7 w-7" />
-            </div>
-
-            <h1 className="text-2xl font-semibold text-gray-800">My Favourites</h1>
-            <p className="mt-2 text-sm text-gray-600">Your saved caregivers</p>
+        <div className="bg-green-50 border border-green-200 shadow-sm rounded-xl p-8">
+          <div className="border-l-4 border-green-500 pl-4 mb-6">
+            <h1 className="text-2xl font-bold text-[#1e3a5f]">
+              My Favourites
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">Your saved caregivers</p>
           </div>
 
           {favourites.length === 0 ? (
-            <div className="mt-8 text-center text-gray-600 leading-relaxed">
+            <div className="mt-8 text-gray-600 leading-relaxed">
               No favourites yet. Browse caregivers and tap ❤️ to save them here.
 
               <div className="mt-8">
@@ -60,7 +58,7 @@ const FavouritesPage = () => {
               </div>
             </div>
           ) : (
-            <div className="mt-8 space-y-4">
+            <div className="mt-8 flex flex-col gap-4">
               {favourites.map((caregiver) => {
                 const imageUrl =
                   resolveBackendMediaUrl(caregiver.profile_photo) ||
@@ -71,12 +69,12 @@ const FavouritesPage = () => {
                 return (
                   <div
                     key={caregiver.id}
-                    className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                    className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-xl border border-green-200 bg-green-50 p-4 shadow-sm"
                   >
                     <img
                       src={imageUrl}
                       alt={caregiver.name || "Caregiver"}
-                      className="h-16 w-16 rounded-full object-cover border border-gray-200 bg-gray-100"
+                      className="h-16 w-16 rounded-full object-cover border border-green-200 bg-green-50"
                     />
 
                     <div className="flex-1 min-w-0">
