@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Heart, MapPin, MessageCircle } from "lucide-react";
 import Navbar from "../components/Navbar";
-import { chatApi } from "../api/axios";
+import { bookingsApi, chatApi } from "../api/axios";
 import VerifiedAvatar from "../components/VerifiedAvatar";
 
 interface FavouriteCaregiver {
@@ -19,15 +19,50 @@ interface FavouriteCaregiver {
   total_reviews?: number;
 }
 
+interface BookingListItem {
+  caregiver_id?: number;
+  caregiver?: number;
+  status?: string;
+  booking_status?: string;
+}
+
 const FavouritesPage = () => {
   const navigate = useNavigate();
   const [favourites, setFavourites] = useState<FavouriteCaregiver[]>([]);
+  const [requestedCaregiverIds, setRequestedCaregiverIds] = useState<number[]>([]);
 
   useEffect(() => {
     const saved = JSON.parse(
       localStorage.getItem("favourite_caregivers") || "[]",
     ) as FavouriteCaregiver[];
     setFavourites(Array.isArray(saved) ? saved : []);
+  }, []);
+
+  useEffect(() => {
+    const fetchBookings = async () => {
+      try {
+        const res = await bookingsApi.get<BookingListItem[]>("list/");
+        const bookings = Array.isArray(res.data) ? res.data : [];
+
+        const requested = bookings
+          .filter((b) => {
+            const status = b.status || b.booking_status;
+            return (
+              status === "pending" ||
+              status === "accepted" ||
+              status === "in_progress"
+            );
+          })
+          .map((b) => b.caregiver_id ?? b.caregiver)
+          .filter((id): id is number => typeof id === "number");
+
+        setRequestedCaregiverIds(requested);
+      } catch {
+        setRequestedCaregiverIds([]);
+      }
+    };
+
+    fetchBookings();
   }, []);
 
   const removeFavourite = (id: number) => {
@@ -67,6 +102,7 @@ const FavouritesPage = () => {
         ) : (
           <ul className="space-y-5">
             {favourites.map((caregiver) => {
+              const hasRequest = requestedCaregiverIds.includes(caregiver.id);
               const serviceTypes = caregiver.service_types ?? caregiver.service_type ?? [];
               const location = caregiver.location ?? caregiver.address ?? "Location not set";
               const ratingText =
@@ -143,13 +179,23 @@ const FavouritesPage = () => {
                   </div>
 
                   <div className="mt-4 flex items-center justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => navigate("/find-caregiver", { state: { openBookingForId: caregiver.id } })}
-                      className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      Request Care
-                    </button>
+                    {hasRequest ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="px-4 py-2 bg-gray-300 text-gray-600 text-sm font-medium rounded-lg cursor-not-allowed"
+                      >
+                        Request Sent
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => navigate("/find-caregiver", { state: { openBookingForId: caregiver.id } })}
+                        className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        Request Care
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="p-2 rounded-lg text-green-600 hover:bg-green-50 transition-colors"
