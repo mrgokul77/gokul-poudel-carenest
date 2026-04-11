@@ -310,7 +310,7 @@ const BookingCard: React.FC<BookingCardProps> = ({
                   onClick={() => 
                     isCaregiverView 
                       ? onFileComplaint(booking.id, booking.family_name || "", booking.caregiver_name || "")
-                      : onFileComplaint(booking.id, booking.caregiver_name || "")
+                      : onFileComplaint(booking.id, booking.family_name || "", booking.caregiver_name || "")
                   }
                   className="px-4 py-1.5 text-xs font-medium text-red-600 border border-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 >
