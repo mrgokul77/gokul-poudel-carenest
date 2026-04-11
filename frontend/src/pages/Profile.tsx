@@ -39,6 +39,8 @@ const SERVICE_TYPES = [
   
 ];
 
+const CURRENT_YEAR = new Date().getFullYear();
+
 // Descriptions shown in the services guide section
 const SERVICES_GUIDE = [
   { name: "Elderly Companionship", description: "Support and companionship for older adults." },
@@ -202,7 +204,11 @@ const Profile = () => {
 
   const handleCaregiverChange = (e: any) => {
     const { name, value } = e.target;
-    if (name === "certification_year" && value !== "" && (Number(value) < 1900 || Number(value) > 2100)) {
+    if (
+      name === "certification_year" &&
+      value !== "" &&
+      (Number(value) < 1990 || Number(value) > CURRENT_YEAR)
+    ) {
       return;
     }
     if (name === "hourly_rate" && value !== "" && Number(value) < 0) {
@@ -712,15 +718,20 @@ const Profile = () => {
                         name="certification_year"
                         value={caregiverForm.certification_year}
                         onChange={handleCaregiverChange}
-                        min={1900}
-                        max={2100}
+                        min={1990}
+                        max={CURRENT_YEAR}
                         className="w-full bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
-                        placeholder="e.g. 2022"
+                        placeholder="e.g. 2020"
                       />
                     ) : (
                       <div className="bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg text-gray-700">
                         {caregiverForm.certification_year || "Not set"}
                       </div>
+                    )}
+                    {mode === "edit" && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        Enter the year you received your certification
+                      </p>
                     )}
                   </div>
                   <div>
