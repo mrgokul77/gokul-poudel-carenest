@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Heart, Search, MapPin, MessageCircle } from "lucide-react";
+import { Heart, MapPin, MessageCircle } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { chatApi } from "../api/axios";
 import { resolveBackendMediaUrl } from "../utils/media";
