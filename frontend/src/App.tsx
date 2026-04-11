@@ -174,6 +174,14 @@ function App() {
           }
         />
         <Route
+          path="/find-caregiver"
+          element={
+            <ProtectedRoute allowedRoles={["careseeker"]}>
+              <FindCaregiver />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/careseeker/bookings"
           element={
             <ProtectedRoute allowedRoles={["careseeker"]}>

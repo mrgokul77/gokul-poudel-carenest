@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Navbar from "../components/Navbar";
 import CaregiverProfileCard from "../components/CaregiverProfileCard";
@@ -36,6 +36,7 @@ interface Caregiver {
   hourly_rate?: number | null;
   verification_status?: string;
   address?: string | null;
+  location?: string | null;
   has_active_booking?: boolean;
   average_rating?: number | null;
   review_count?: number;
@@ -88,6 +89,7 @@ const RELATIONSHIP_OPTIONS = [
 const FindCaregiver = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [caregivers, setCaregivers] = useState<Caregiver[]>([]);
   const [bookings, setBookings] = useState<any[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -118,6 +120,7 @@ const FindCaregiver = () => {
   const [filterModalLocation, setFilterModalLocation] = useState("");
   const [filterModalGender, setFilterModalGender] = useState("");
   const [showBookingForm, setShowBookingForm] = useState(false);
+  const [bookingPrefillConsumed, setBookingPrefillConsumed] = useState(false);
   const [selectedCaregiver, setSelectedCaregiver] = useState<Caregiver | null>(
     null,
   );
@@ -310,6 +313,22 @@ const FindCaregiver = () => {
     setShowBookingForm(true);
   };
 
+  useEffect(() => {
+    const requestedId = location.state?.openBookingForId as number | undefined;
+    if (!requestedId || bookingPrefillConsumed || showBookingForm) {
+      return;
+    }
+
+    const requestedCaregiver = caregivers.find(
+      (caregiver) => caregiver.user_id === requestedId,
+    );
+
+    if (requestedCaregiver) {
+      openBookingForm(requestedCaregiver);
+      setBookingPrefillConsumed(true);
+    }
+  }, [caregivers, bookingPrefillConsumed, location.state, showBookingForm]);
+
   const closeBookingForm = () => {
     setShowBookingForm(false);
     setSelectedCaregiver(null);
@@ -396,7 +415,11 @@ const FindCaregiver = () => {
         name: caregiver.username,
         profile_photo: caregiver.profile_image,
         rating: caregiver.average_rating,
-        service_type: caregiver.service_types,
+        service_types: caregiver.service_types ?? [],
+        service_type: caregiver.service_types ?? [],
+        location: caregiver.address ?? caregiver.location ?? null,
+        hourly_rate: caregiver.hourly_rate ?? null,
+        total_reviews: caregiver.review_count ?? 0,
       },
     ];
 
