@@ -261,6 +261,19 @@ def on_payment_change(instance, created, update_fields, **kwargs):
                 ),
                 instance.id,
             )
+    elif instance.status == "failed":
+        if booking and booking.family:
+            payee = caregiver_name or "your caregiver"
+            _create_and_broadcast(
+                booking.family,
+                "payment",
+                "Payment failed",
+                (
+                    f"Your payment to {payee} could not be processed. "
+                    f"Please try again when you are ready."
+                ),
+                instance.id,
+            )
 
 
 @receiver(post_save)
@@ -312,31 +325,6 @@ def on_emergency_mobile_push(sender, instance, created, **kwargs):
             )
     except Exception:
         pass
-        if booking and booking.caregiver:
-            payer = family_name or "the care seeker"
-            _create_and_broadcast(
-                booking.caregiver,
-                "payment",
-                f"Received from {payer}",
-                (
-                    f"{payer} paid Rs.{amount_str} for your completed service. "
-                    f"The amount has been credited to you."
-                ),
-                instance.id,
-            )
-    elif instance.status == "failed":
-        if booking and booking.family:
-            payee = caregiver_name or "your caregiver"
-            _create_and_broadcast(
-                booking.family,
-                "payment",
-                "Payment failed",
-                (
-                    f"Your payment to {payee} could not be processed. "
-                    f"Please try again when you are ready."
-                ),
-                instance.id,
-            )
 
 
 def create_message_notification(sender, recipient, conversation_id, preview_text):
