@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Heart, MapPin, MessageCircle } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { chatApi } from "../api/axios";
-import { resolveBackendMediaUrl } from "../utils/media";
+import VerifiedAvatar from "../components/VerifiedAvatar";
 
 interface FavouriteCaregiver {
   id: number;
   name?: string;
   profile_photo?: string | null;
+  verification_status?: string | null;
   rating?: number | null;
   service_types?: string[];
   service_type?: string[];
@@ -66,11 +67,6 @@ const FavouritesPage = () => {
         ) : (
           <ul className="space-y-5">
             {favourites.map((caregiver) => {
-              const imageUrl =
-                resolveBackendMediaUrl(caregiver.profile_photo) ||
-                `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                  caregiver.name || "Caregiver",
-                )}&background=random`;
               const serviceTypes = caregiver.service_types ?? caregiver.service_type ?? [];
               const location = caregiver.location ?? caregiver.address ?? "Location not set";
               const ratingText =
@@ -90,7 +86,7 @@ const FavouritesPage = () => {
                   <button
                     type="button"
                     onClick={() => removeFavourite(caregiver.id)}
-                    className="absolute top-3 right-3 p-1.5 text-red-500"
+                    className="absolute top-3 right-3 p-1.5 text-red-500 hover:text-red-600 transition-all"
                     aria-label="Remove from favourites"
                     title="Remove from favourites"
                   >
@@ -98,10 +94,11 @@ const FavouritesPage = () => {
                   </button>
 
                   <div className="flex gap-4 items-center">
-                    <img
-                      src={imageUrl}
-                      alt={caregiver.name || "Caregiver"}
-                      className="w-16 h-16 rounded-full object-cover border border-gray-200 bg-green-50 shrink-0"
+                    <VerifiedAvatar
+                      src={caregiver.profile_photo ?? null}
+                      username={caregiver.name || "Caregiver"}
+                      isVerified={caregiver.verification_status === "approved" || caregiver.verification_status == null}
+                      size="md"
                     />
 
                     <div className="flex-1 min-w-0">
