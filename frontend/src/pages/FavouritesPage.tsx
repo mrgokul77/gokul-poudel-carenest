@@ -36,11 +36,15 @@ const FavouritesPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-green-50 px-6 py-8">
+    <div className="min-h-screen bg-green-50">
       <Navbar />
 
-      <div className="max-w-5xl mx-auto">
-        <div className="border-l-4 border-green-500 pl-4 mb-6">
+      <div className="max-w-6xl mx-auto px-6 py-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="hidden lg:block lg:col-span-3" />
+
+          <div className="lg:col-span-9">
+        <div className="mb-6">
           <h1 className="text-2xl font-bold text-[#1e3a5f]">My Favourites</h1>
           <p className="text-sm text-gray-500 mt-1">Your saved caregivers</p>
         </div>
@@ -60,7 +64,7 @@ const FavouritesPage = () => {
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <ul className="space-y-5">
             {favourites.map((caregiver) => {
               const imageUrl =
                 resolveBackendMediaUrl(caregiver.profile_photo) ||
@@ -79,9 +83,9 @@ const FavouritesPage = () => {
                   : "(0 reviews)";
 
               return (
-                <div
+                <li
                   key={caregiver.id}
-                  className="relative bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm hover:border-green-500 transition-colors"
+                  className="relative bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm hover:border-green-500 transition-colors cursor-pointer"
                 >
                   <button
                     type="button"
@@ -167,11 +171,13 @@ const FavouritesPage = () => {
                       <MessageCircle size={20} className="stroke-current" />
                     </button>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );
