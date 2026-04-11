@@ -400,7 +400,9 @@ const FindCaregiver = () => {
       service_type?: string[];
     }>;
 
-    if (isFavourite) {
+    const alreadyFavourite = saved.some((f) => f.id === caregiver.user_id);
+
+    if (alreadyFavourite) {
       const updated = saved.filter((f) => f.id !== caregiver.user_id);
       localStorage.setItem("favourite_caregivers", JSON.stringify(updated));
       setIsFavourite(false);
@@ -426,6 +428,13 @@ const FindCaregiver = () => {
     localStorage.setItem("favourite_caregivers", JSON.stringify(updated));
     setIsFavourite(true);
     setFavouriteMessage("Added to My Favourites ❤️");
+  };
+
+  const isCaregiverFavourite = (caregiverId: number) => {
+    const saved = JSON.parse(
+      localStorage.getItem("favourite_caregivers") || "[]",
+    ) as Array<{ id: number }>;
+    return saved.some((f) => f.id === caregiverId);
   };
 
   const submitBooking = async () => {
@@ -744,9 +753,27 @@ const FindCaregiver = () => {
                     return (
                       <li
                         key={c.user_id}
-                        className="bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm hover:border-green-500 transition-colors cursor-pointer"
+                        className="relative bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm hover:border-green-500 transition-colors cursor-pointer"
                         onClick={() => openProfileModal(c)}
                       >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFavourite(c);
+                          }}
+                          className={`absolute top-3 right-3 p-1.5 rounded-full transition-all ${
+                            isCaregiverFavourite(c.user_id)
+                              ? "text-red-500"
+                              : "text-gray-300 hover:text-red-400"
+                          }`}
+                          aria-label="Toggle favourite"
+                        >
+                          <Heart
+                            size={18}
+                            className={isCaregiverFavourite(c.user_id) ? "fill-red-500" : ""}
+                          />
+                        </button>
                         <div className="flex gap-4 items-center">
                           {/* Profile photo with verified tick */}
                           <VerifiedAvatar

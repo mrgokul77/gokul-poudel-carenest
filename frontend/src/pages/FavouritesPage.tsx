@@ -81,13 +81,23 @@ const FavouritesPage = () => {
               return (
                 <div
                   key={caregiver.id}
-                  className="bg-green-50 border border-green-200 rounded-xl p-4 shadow-sm"
+                  className="relative bg-green-50 border border-gray-200 rounded-xl p-5 shadow-sm hover:border-green-500 transition-colors"
                 >
+                  <button
+                    type="button"
+                    onClick={() => removeFavourite(caregiver.id)}
+                    className="absolute top-3 right-3 p-1.5 text-red-500"
+                    aria-label="Remove from favourites"
+                    title="Remove from favourites"
+                  >
+                    <Heart size={18} className="fill-red-500" />
+                  </button>
+
                   <div className="flex gap-4 items-center">
                     <img
                       src={imageUrl}
                       alt={caregiver.name || "Caregiver"}
-                      className="w-16 h-16 rounded-full object-cover border border-green-200 bg-green-50 shrink-0"
+                      className="w-16 h-16 rounded-full object-cover border border-gray-200 bg-green-50 shrink-0"
                     />
 
                     <div className="flex-1 min-w-0">
@@ -108,7 +118,7 @@ const FavouritesPage = () => {
                           {serviceTypes.map((service) => (
                             <span
                               key={service}
-                              className="px-2 py-0.5 text-xs font-medium text-gray-600 border border-green-200 rounded-md bg-green-50"
+                              className="px-2 py-0.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md bg-green-200"
                             >
                               {service}
                             </span>
@@ -123,7 +133,7 @@ const FavouritesPage = () => {
 
                       {typeof caregiver.hourly_rate === "number" && (
                         <div className="mt-2">
-                          <span className="inline-flex items-center px-2.5 py-1 text-sm font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg">
+                          <span className="inline-flex items-center px-2.5 py-1 text-sm font-semibold text-green-700 bg-green-100 border border-green-200 rounded-lg">
                             Rs. {caregiver.hourly_rate} / hour
                           </span>
                         </div>
@@ -134,12 +144,10 @@ const FavouritesPage = () => {
                   <div className="mt-4 flex items-center justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => removeFavourite(caregiver.id)}
-                      className="p-2 rounded-lg text-red-500 hover:text-red-600 transition-colors"
-                      aria-label="Remove from favourites"
-                      title="Remove from favourites"
+                      onClick={() => navigate("/find-caregiver", { state: { openBookingForId: caregiver.id } })}
+                      className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
                     >
-                      <Heart size={20} className="fill-red-500" />
+                      Request Care
                     </button>
                     <button
                       type="button"
@@ -157,13 +165,6 @@ const FavouritesPage = () => {
                       }}
                     >
                       <MessageCircle size={20} className="stroke-current" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => navigate("/find-caregiver", { state: { openBookingForId: caregiver.id } })}
-                      className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
-                    >
-                      Request Care
                     </button>
                   </div>
                 </div>
