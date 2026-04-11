@@ -20,7 +20,7 @@ def send_mobile_push(user, title, body, data={}):
         for token_obj in tokens:
             try:
                 send_push_notification(
-                    token_obj.push_token,
+                    token_obj.token,
                     title,
                     body,
                     data,
@@ -295,7 +295,7 @@ def on_emergency_mobile_push(sender, instance, created, **kwargs):
 
             for token_obj in tokens:
                 try:
-                    send_push_notification(token_obj.push_token, title, body, data)
+                    send_push_notification(token_obj.token, title, body, data)
                 except Exception:
                     pass
 
