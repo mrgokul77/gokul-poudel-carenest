@@ -39,38 +39,39 @@ MINIMUM_ADVANCE_BOOKING_HOURS = 1
 
 
 def expire_pending_bookings(queryset=None):
-    # if a caregiver doesn't respond in 30 mins, auto-expire the request
     try:
-        now = timezone.now()
-        cutoff = now - timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES)
-        pending_bookings = (
-            queryset.filter(status="pending")
+        expiry_time = timezone.now() - timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES)
+        expired_bookings = (
+            queryset.filter(status="pending", created_at__lt=expiry_time)
             if queryset is not None
-            else Booking.objects.filter(status="pending")
+            else Booking.objects.filter(status="pending", created_at__lt=expiry_time)
         )
 
-        for booking in pending_bookings:
-            try:
-                if booking.created_at < cutoff:
-                    booking.status = "expired"
-                    booking.save(update_fields=["status", "updated_at"])
+        print(f"[EXPIRY] Found {expired_bookings.count()} expired bookings")
 
-                    expiry_message = "Booking request expired due to no response from caregiver within 30 minutes."
-                    Notification.objects.create(
-                        user=booking.family,
-                        type="booking",
-                        title="Booking Expired",
-                        message=expiry_message,
-                        related_id=booking.id,
-                    )
-                    Notification.objects.create(
-                        user=booking.caregiver,
-                        type="booking",
-                        title="Booking Request Expired",
-                        message=expiry_message,
-                        related_id=booking.id,
-                    )
-            except Exception:
+        for booking in expired_bookings:
+            try:
+                print(f"[EXPIRY] Expiring booking {booking.id} created at {booking.created_at}")
+                booking.status = "expired"
+                booking.save(update_fields=["status", "updated_at"])
+
+                expiry_message = "Booking request expired due to no response from caregiver within 30 minutes."
+                Notification.objects.create(
+                    user=booking.family,
+                    type="booking",
+                    title="Booking Expired",
+                    message=expiry_message,
+                    related_id=booking.id,
+                )
+                Notification.objects.create(
+                    user=booking.caregiver,
+                    type="booking",
+                    title="Booking Request Expired",
+                    message=expiry_message,
+                    related_id=booking.id,
+                )
+            except Exception as e:
+                print(f"[EXPIRY] Error expiring booking {booking.id}: {e}")
                 continue
     except Exception:
         pass
@@ -127,6 +128,10 @@ def caregiver_has_overlap(caregiver_id, date, start_time, duration_hours, exclud
 
 def check_caregiver_overlap(caregiver, booking):
     try:
+        print(f"[AVAILABILITY] Checking caregiver {caregiver.id} for booking {booking.id}")
+        print(f"[AVAILABILITY] Date: {booking.date}")
+        print(f"[AVAILABILITY] Time: {booking.start_time}")
+
         new_date = booking.date
         new_start = datetime.strptime(
             f"{new_date} {str(booking.start_time)[:5]}",
@@ -136,15 +141,17 @@ def check_caregiver_overlap(caregiver, booking):
             hours=float(booking.duration_hours or 1)
         )
 
-        # Only compare against already accepted/in-progress bookings on the same date.
+        print(f"[AVAILABILITY] New start: {new_start}")
+        print(f"[AVAILABILITY] New end: {new_end}")
+
+        # Only compare against already accepted/in-progress/awaiting-confirmation bookings on the same date.
         existing = Booking.objects.filter(
             caregiver=caregiver,
             date=new_date,
-            status__in=["accepted", "in_progress"],
+            status__in=["accepted", "in_progress", "awaiting_confirmation"],
         ).exclude(id=booking.id)
 
-        if not existing.exists():
-            return False, None
+        print(f"[AVAILABILITY] Existing bookings on same date: {existing.count()}")
 
         for b in existing:
             try:
@@ -156,14 +163,29 @@ def check_caregiver_overlap(caregiver, booking):
                     hours=float(b.duration_hours or 1)
                 )
 
+                print(f"[AVAILABILITY] Existing booking {b.id}: {b_start} to {b_end}")
+
                 if new_start < b_end and new_end > b_start:
+                    print(f"[AVAILABILITY] OVERLAP FOUND with booking {b.id}")
                     return True, b.id
-            except Exception:
+            except Exception as e:
+                print(f"[AVAILABILITY] Error checking booking {b.id}: {e}")
                 continue
 
+        print("[AVAILABILITY] No overlap found - caregiver is available")
         return False, None
-    except Exception:
+    except Exception as e:
+        print(f"[AVAILABILITY] Exception: {e}")
         return False, None
+
+
+def check_caregiver_available(caregiver, booking):
+    try:
+        is_overlap, _ = check_caregiver_overlap(caregiver, booking)
+        return not is_overlap
+    except Exception as e:
+        print(f"[AVAILABILITY] Availability check failed: {e}")
+        return True
 
 
 class VerifiedCaregiverListView(APIView):
@@ -266,7 +288,10 @@ class BookingCreateView(APIView):
             is_available = True
             conflict_id = None
             try:
-                is_available, conflict_id = check_caregiver_overlap(caregiver, booking_stub)
+                is_available = check_caregiver_available(caregiver, booking_stub)
+                print(f"[BOOKING] Is available: {is_available}")
+                if not is_available:
+                    _, conflict_id = check_caregiver_overlap(caregiver, booking_stub)
             except Exception:
                 is_available = True
                 conflict_id = None
@@ -281,6 +306,7 @@ class BookingCreateView(APIView):
             total_amount = float(hourly_rate) * duration_hours
 
             if not is_available:
+                print(f"[BOOKING] Auto rejecting booking for caregiver {caregiver.id} due to conflict")
                 booking = serializer.save(
                     family=request.user,
                     caregiver=caregiver,
@@ -294,6 +320,7 @@ class BookingCreateView(APIView):
                     response_data["conflict_booking_id"] = conflict_id
                 return Response(response_data, status=status.HTTP_201_CREATED)
             
+            print(f"[BOOKING] Booking {caregiver.id} kept as pending")
             booking = serializer.save(
                 family=request.user,
                 caregiver=caregiver,
