@@ -95,7 +95,7 @@ class CaregiverListSerializer(serializers.ModelSerializer):
             has_active = Booking.objects.filter(
                 family=request.user,
                 caregiver=obj.user,
-                status__in=["pending", "accepted", "completion_requested"]
+                status__in=["pending", "accepted", "completion_requested", "awaiting_confirmation"]
             ).exists()
             return has_active
         return False
@@ -274,13 +274,13 @@ class BookingSerializer(serializers.ModelSerializer):
     def get_booking_status(self, obj):
         """
         Workflow state for display. Statuses map directly:
-        pending, accepted, completion_requested, completed, rejected, expired
+        pending, accepted, completion_requested, awaiting_confirmation, completed, rejected, expired
         """
         return obj.status
 
     def get_payment_status(self, obj):
         """Paid or Unpaid for display badges. Checks Payment model for accepted/completed bookings."""
-        if obj.status in ("accepted", "completion_requested", "completed"):
+        if obj.status in ("accepted", "completion_requested", "awaiting_confirmation", "completed"):
             try:
                 from payments.models import Payment
                 payment = Payment.objects.get(booking=obj)
@@ -330,7 +330,9 @@ class BookingSerializer(serializers.ModelSerializer):
 
 
 class BookingStatusUpdateSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=["accepted", "rejected", "in_progress", "completed"])
+    status = serializers.ChoiceField(
+        choices=["accepted", "rejected", "in_progress", "awaiting_confirmation", "completed"]
+    )
     timestamp = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):
@@ -340,7 +342,7 @@ class BookingStatusUpdateSerializer(serializers.Serializer):
         allowed_next_statuses = {
             "pending": ["accepted", "rejected"],
             "accepted": ["in_progress"],
-            "in_progress": ["completed"],
+            "in_progress": ["awaiting_confirmation", "completed"],
         }
 
         if requested_status not in allowed_next_statuses.get(booking.status, []):
@@ -369,7 +371,7 @@ class BookingStatusUpdateSerializer(serializers.Serializer):
                     "status": "Cannot check in before booked time."
                 })
 
-        if requested_status == "completed":
+        if requested_status in ("awaiting_confirmation", "completed"):
             if booking.status != "in_progress":
                 raise serializers.ValidationError({
                     "status": "Cannot check out when booking is not in_progress."

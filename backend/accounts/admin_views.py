@@ -195,6 +195,7 @@ class AdminBookingDetailView(APIView):
         "pending",
         "accepted",
         "completion_requested",
+        "awaiting_confirmation",
         "completed",
         "rejected",
         "expired",
@@ -219,7 +220,7 @@ class AdminBookingDetailView(APIView):
                 {
                     "error": (
                         "Invalid status. Must be one of: pending, accepted, "
-                        "completion_requested, completed, rejected, expired"
+                        "completion_requested, awaiting_confirmation, completed, rejected, expired"
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,

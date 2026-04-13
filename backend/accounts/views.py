@@ -395,7 +395,7 @@ class CaregiverDashboardSummaryView(APIView):
         upcoming_bookings = sum(
             1
             for b in bookings
-            if b.status in ("accepted", "completion_requested")
+            if b.status in ("accepted", "completion_requested", "awaiting_confirmation")
             and b.end_datetime > now
         )
         completed_services = sum(1 for b in bookings if b.status == "completed")
@@ -477,11 +477,11 @@ class CareseekerDashboardSummaryView(APIView):
 
         now = timezone.localtime()
 
-        # Active = accepted or completion_requested, end time in future
+        # Active = accepted or completion_requested/awaiting_confirmation, end time in future
         active_bookings = sum(
             1
             for b in bookings
-            if b.status in ("accepted", "completion_requested") and b.end_datetime > now
+            if b.status in ("accepted", "completion_requested", "awaiting_confirmation") and b.end_datetime > now
         )
         pending_requests = sum(1 for b in bookings if b.status == "pending")
         completed_services = sum(1 for b in bookings if b.status == "completed")
@@ -668,7 +668,7 @@ class NotificationsView(APIView):
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
-                elif b.status in ("accepted", "completion_requested"):
+                elif b.status in ("accepted", "completion_requested", "awaiting_confirmation"):
                     notifications.append({
                         "type": "accepted",
                         "message": f"Booking with {b.family.username} accepted",

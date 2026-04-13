@@ -11,6 +11,7 @@ class Booking(models.Model):
         ("accepted", "Accepted"),
         ("in_progress", "In Progress"),
         ("completion_requested", "Completion Requested"),
+        ("awaiting_confirmation", "Awaiting Confirmation"),
         ("completed", "Completed"),
         ("rejected", "Declined"),
         ("expired", "Expired"),

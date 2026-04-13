@@ -131,7 +131,7 @@ def on_booking_change(instance, created, **kwargs):
             f"Caregiver {instance.caregiver.username} checked in for your booking.",
             instance.id,
         )
-    elif instance.status == "completion_requested":
+    elif instance.status in ("completion_requested", "awaiting_confirmation"):
         _create_and_broadcast(
             instance.family,
             "booking",
@@ -206,6 +206,13 @@ def on_booking_mobile_push(instance, created, **kwargs):
                 booking.family,
                 "🏃 Caregiver Has Arrived!",
                 "Your caregiver has checked in",
+                booking_data,
+            )
+        elif booking.status in ('completion_requested', 'awaiting_confirmation'):
+            send_mobile_push(
+                booking.family,
+                "Service Ready for Confirmation",
+                "Your caregiver finished the service. Please confirm completion.",
                 booking_data,
             )
         elif booking.status == 'completed':

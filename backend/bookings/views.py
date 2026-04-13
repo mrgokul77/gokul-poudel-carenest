@@ -30,6 +30,7 @@ def _is_mobile_request(request):
 
 
 PENDING_RESPONSE_WINDOW_MINUTES = 90
+IN_PROGRESS_AUTO_EXPIRE_HOURS = 3
 
 
 def expire_pending_bookings(queryset):
@@ -38,6 +39,16 @@ def expire_pending_bookings(queryset):
     cutoff = now - timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES)
     for booking in queryset.filter(status="pending"):
         if booking.created_at < cutoff:
+            booking.status = "expired"
+            booking.save()
+
+
+def expire_stale_in_progress_bookings(queryset):
+    # if a service runs 3 hours past its scheduled end, auto-expire it
+    now = timezone.localtime()
+    expiry_cutoff = now - timedelta(hours=IN_PROGRESS_AUTO_EXPIRE_HOURS)
+    for booking in queryset.filter(status="in_progress"):
+        if booking.end_datetime <= expiry_cutoff:
             booking.status = "expired"
             booking.save()
 
@@ -98,6 +109,9 @@ def check_caregiver_overlap(caregiver, booking):
             date=new_date,
             status__in=["accepted", "in_progress"],
         ).exclude(id=booking.id)
+
+        if not existing.exists():
+            return False, None
 
         for b in existing:
             try:
@@ -188,7 +202,7 @@ class BookingCreateView(APIView):
         existing_booking = Booking.objects.filter(
             family=request.user,
             caregiver=caregiver,
-            status__in=["pending", "accepted", "completion_requested"]
+            status__in=["pending", "accepted", "completion_requested", "awaiting_confirmation"]
         ).first()
         
         if existing_booking:
@@ -253,6 +267,7 @@ class BookingListView(APIView):
             )
         # Auto-expire pending bookings that exceeded 90-minute response window
         expire_pending_bookings(bookings)
+        expire_stale_in_progress_bookings(bookings)
         serializer = BookingSerializer(bookings, many=True, context={"request": request})
         return Response(serializer.data)
 
@@ -283,7 +298,7 @@ class BookingMarkServiceCompleteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        booking.status = "completion_requested"
+        booking.status = "awaiting_confirmation" if _is_mobile_request(request) else "completion_requested"
         booking.save()
 
         serializer = BookingSerializer(booking, context={"request": request})
@@ -303,7 +318,7 @@ class BookingConfirmCompletionView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if booking.status != "completion_requested":
+        if booking.status not in ("completion_requested", "awaiting_confirmation"):
             return Response(
                 {"error": f"Only completion-requested bookings can be confirmed (current status: {booking.status})."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -386,6 +401,7 @@ class AssignedBookingsView(APIView):
 
     def get(self, request):
         bookings = Booking.objects.filter(caregiver=request.user).order_by("-created_at")
+        expire_stale_in_progress_bookings(bookings)
         serializer = BookingSerializer(bookings, many=True, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -399,6 +415,9 @@ class BookingUpdateStatusView(APIView):
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
+        booking.refresh_from_db()
 
         serializer = BookingStatusUpdateSerializer(data=request.data, context={"booking": booking})
         serializer.is_valid(raise_exception=True)
@@ -431,13 +450,13 @@ class BookingUpdateStatusView(APIView):
             booking.status = "in_progress"
             booking.check_in_time = event_time
             booking.check_out_time = None
-        elif requested_status == "completed":
-            booking.status = "completed"
+        elif requested_status in ("awaiting_confirmation", "completed"):
+            booking.status = requested_status
             booking.check_out_time = event_time
 
         booking.save()
 
-        if requested_status == "completed" and _is_mobile_request(request):
+        if requested_status in ("awaiting_confirmation", "completed") and _is_mobile_request(request):
             UserActivity.objects.create(
                 user=request.user,
                 activity_type=UserActivity.ACTIVITY_BOOKING_COMPLETED,
@@ -457,6 +476,9 @@ class BookingProofUploadView(APIView):
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
+        booking.refresh_from_db()
 
         if booking.status != "in_progress":
             return Response(
@@ -482,6 +504,9 @@ class BookingUpdateLocationView(APIView):
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
+        booking.refresh_from_db()
 
         if booking.status != "in_progress":
             return Response(
@@ -523,6 +548,9 @@ class BookingCaregiverLocationView(APIView):
             booking = Booking.objects.get(pk=pk, family=request.user)
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
+        booking.refresh_from_db()
 
         has_location = (
             booking.caregiver_latitude is not None
