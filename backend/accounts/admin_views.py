@@ -175,6 +175,7 @@ def _serialize_booking_for_admin(booking):
         "service_address": booking.service_address,
         "additional_info": booking.additional_info,
         "status": booking.status,
+        "rejection_reason": booking.rejection_reason,
         "created_at": booking.created_at,
     }
 

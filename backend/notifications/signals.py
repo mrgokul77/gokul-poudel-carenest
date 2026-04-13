@@ -93,14 +93,24 @@ def _create_and_broadcast(user, ntype, title, message, related_id):
 def on_booking_change(instance, created, **kwargs):
     """Create notifications when booking status changes."""
     if created:
-        # New booking request -> notify caregiver
-        _create_and_broadcast(
-            instance.caregiver,
-            "booking",
-            "New booking request",
-            f"{instance.family.username} sent you a booking request.",
-            instance.id,
-        )
+        if instance.status == "rejected":
+            rejection_reason = instance.rejection_reason or "Caregiver unavailable at this time. Please choose another caregiver."
+            _create_and_broadcast(
+                instance.family,
+                "booking",
+                "Booking declined",
+                rejection_reason,
+                instance.id,
+            )
+        else:
+            # New booking request -> notify caregiver
+            _create_and_broadcast(
+                instance.caregiver,
+                "booking",
+                "New booking request",
+                f"{instance.family.username} sent you a booking request.",
+                instance.id,
+            )
         return
 
     old_status = getattr(instance, "_previous_status", None)
@@ -120,7 +130,7 @@ def on_booking_change(instance, created, **kwargs):
             instance.family,
             "booking",
             "Booking declined",
-            "Caregiver rejected your booking",
+            instance.rejection_reason or "Caregiver rejected your booking.",
             instance.id,
         )
     elif instance.status == "in_progress":
@@ -177,7 +187,17 @@ def on_booking_mobile_push(instance, created, **kwargs):
         booking = instance
         booking_data = {"booking_id": booking.id}
 
-        if created or getattr(booking, "_previous_status", None) == booking.status:
+        if created:
+            if booking.status == 'rejected':
+                send_mobile_push(
+                    booking.family,
+                    "Booking Declined",
+                    booking.rejection_reason or "Caregiver unavailable at this time. Please choose another caregiver.",
+                    booking_data,
+                )
+            return
+
+        if getattr(booking, "_previous_status", None) == booking.status:
             return
 
         if booking.status == 'pending':
@@ -198,7 +218,7 @@ def on_booking_mobile_push(instance, created, **kwargs):
             send_mobile_push(
                 booking.family,
                 "Booking Rejected",
-                "Your booking was rejected",
+                booking.rejection_reason or "Your booking was rejected",
                 booking_data,
             )
         elif booking.status == 'in_progress':

@@ -259,6 +259,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "longitude",
             "additional_info",
             "status",
+            "rejection_reason",
             "check_in_time",
             "check_out_time",
             "proof_image",
@@ -333,6 +334,7 @@ class BookingStatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=["accepted", "rejected", "in_progress", "awaiting_confirmation", "completed"]
     )
+    rejection_reason = serializers.CharField(required=False, allow_blank=True)
     timestamp = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, attrs):

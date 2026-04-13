@@ -642,7 +642,7 @@ class NotificationsView(APIView):
                 elif b.status == "rejected":
                     notifications.append({
                         "type": "rejected",
-                        "message": f"Caregiver {b.caregiver.username} declined your booking",
+                        "message": b.rejection_reason or f"Caregiver {b.caregiver.username} declined your booking",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })

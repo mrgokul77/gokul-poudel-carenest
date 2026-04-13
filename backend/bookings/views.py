@@ -31,6 +31,8 @@ def _is_mobile_request(request):
 
 PENDING_RESPONSE_WINDOW_MINUTES = 90
 IN_PROGRESS_AUTO_EXPIRE_HOURS = 3
+AUTO_REJECTION_REASON = "Caregiver unavailable at this time. Please choose another caregiver."
+MANUAL_REJECTION_REASON = "Caregiver declined your booking. Please choose another caregiver."
 
 
 def expire_pending_bookings(queryset):
@@ -198,19 +200,6 @@ class BookingCreateView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Prevent duplicate active bookings with same caregiver (expired excluded)
-        existing_booking = Booking.objects.filter(
-            family=request.user,
-            caregiver=caregiver,
-            status__in=["pending", "accepted", "completion_requested", "awaiting_confirmation"]
-        ).first()
-        
-        if existing_booking:
-            return Response(
-                {"error": "You already have an active booking request with this caregiver"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         serializer = BookingCreateSerializer(data=request.data)
         if settings.DEBUG:
             print("REQUEST DATA (booking create):", dict(request.data))
@@ -219,14 +208,22 @@ class BookingCreateView(APIView):
             date = serializer.validated_data.get("date")
             start_time = serializer.validated_data.get("start_time")
             duration_hours = serializer.validated_data.get("duration_hours", 1)
-            
-            # Check if the caregiver has any overlapping active bookings for this time slot
-            # This ensures we don't double-book a caregiver even if they have multiple requests
-            if caregiver_has_overlap(caregiver_id, date, start_time, duration_hours):
-                return Response(
-                    {"error": "This caregiver is not available during the selected time slot. Please choose a different date/time."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+
+            booking_stub = Booking(
+                family=request.user,
+                caregiver=caregiver,
+                date=date,
+                start_time=start_time,
+                duration_hours=duration_hours,
+            )
+
+            is_available = True
+            conflict_id = None
+            try:
+                is_available, conflict_id = check_caregiver_overlap(caregiver, booking_stub)
+            except Exception:
+                is_available = True
+                conflict_id = None
             
             # Calculate total_amount from caregiver's hourly_rate
             try:
@@ -236,6 +233,20 @@ class BookingCreateView(APIView):
                 hourly_rate = 0
             
             total_amount = float(hourly_rate) * duration_hours
+
+            if not is_available:
+                booking = serializer.save(
+                    family=request.user,
+                    caregiver=caregiver,
+                    status="rejected",
+                    total_amount=total_amount,
+                    rejection_reason=AUTO_REJECTION_REASON,
+                )
+                response_data = BookingSerializer(booking, context={"request": request}).data
+                response_data["message"] = AUTO_REJECTION_REASON
+                if conflict_id:
+                    response_data["conflict_booking_id"] = conflict_id
+                return Response(response_data, status=status.HTTP_201_CREATED)
             
             booking = serializer.save(
                 family=request.user,
@@ -391,6 +402,9 @@ class BookingRespondView(APIView):
                 )
 
         booking.status = new_status
+        if new_status == "rejected":
+            rejection_reason = (request.data.get("rejection_reason") or "").strip() or MANUAL_REJECTION_REASON
+            booking.rejection_reason = rejection_reason
         booking.save()
         return Response(BookingSerializer(booking, context={"request": request}).data)
 
@@ -446,6 +460,7 @@ class BookingUpdateStatusView(APIView):
             booking.status = "accepted"
         elif requested_status == "rejected":
             booking.status = "rejected"
+            booking.rejection_reason = (serializer.validated_data.get("rejection_reason") or "").strip() or MANUAL_REJECTION_REASON
         elif requested_status == "in_progress":
             booking.status = "in_progress"
             booking.check_in_time = event_time

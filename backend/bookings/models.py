@@ -41,6 +41,7 @@ class Booking(models.Model):
         choices=STATUS_CHOICES,
         default="pending",  # always starts as waiting for caregiver response
     )  # No cancelled status
+    rejection_reason = models.TextField(blank=True, null=True)
     check_in_time = models.DateTimeField(null=True, blank=True)
     check_out_time = models.DateTimeField(null=True, blank=True)
     proof_image = models.ImageField(upload_to="booking_proofs/", null=True, blank=True)
