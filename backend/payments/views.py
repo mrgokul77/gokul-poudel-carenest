@@ -88,7 +88,7 @@ class InitiateKhaltiPaymentView(APIView):
             )
 
         # Delete any existing pending Payment for this booking
-        Payment.objects.filter(booking, status="pending").delete()
+        Payment.objects.filter(booking=booking, status="pending").delete()
 
         # Check if payment already exists and is completed
         try:
