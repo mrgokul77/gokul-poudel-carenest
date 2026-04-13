@@ -19,6 +19,8 @@ from .serializers import (
 )
 from .permissions import IsCareSeeker
 from verifications.permissions import IsCaregiver
+import pytz
+from notifications.models import Notification
 
 
 def _is_mobile_request(request):
@@ -29,20 +31,49 @@ def _is_mobile_request(request):
     return "expo" in user_agent or "react native" in user_agent or "mobile" in user_agent
 
 
-PENDING_RESPONSE_WINDOW_MINUTES = 90
+PENDING_RESPONSE_WINDOW_MINUTES = 30
 IN_PROGRESS_AUTO_EXPIRE_HOURS = 3
 AUTO_REJECTION_REASON = "Caregiver unavailable at this time. Please choose another caregiver."
 MANUAL_REJECTION_REASON = "Caregiver declined your booking. Please choose another caregiver."
+MINIMUM_ADVANCE_BOOKING_HOURS = 1
 
 
-def expire_pending_bookings(queryset):
-    # if a caregiver doesn't respond in 90 mins, auto-expire the request
-    now = timezone.now()
-    cutoff = now - timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES)
-    for booking in queryset.filter(status="pending"):
-        if booking.created_at < cutoff:
-            booking.status = "expired"
-            booking.save()
+def expire_pending_bookings(queryset=None):
+    # if a caregiver doesn't respond in 30 mins, auto-expire the request
+    try:
+        now = timezone.now()
+        cutoff = now - timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES)
+        pending_bookings = (
+            queryset.filter(status="pending")
+            if queryset is not None
+            else Booking.objects.filter(status="pending")
+        )
+
+        for booking in pending_bookings:
+            try:
+                if booking.created_at < cutoff:
+                    booking.status = "expired"
+                    booking.save(update_fields=["status", "updated_at"])
+
+                    expiry_message = "Booking request expired due to no response from caregiver within 30 minutes."
+                    Notification.objects.create(
+                        user=booking.family,
+                        type="booking",
+                        title="Booking Expired",
+                        message=expiry_message,
+                        related_id=booking.id,
+                    )
+                    Notification.objects.create(
+                        user=booking.caregiver,
+                        type="booking",
+                        title="Booking Request Expired",
+                        message=expiry_message,
+                        related_id=booking.id,
+                    )
+            except Exception:
+                continue
+    except Exception:
+        pass
 
 
 def expire_stale_in_progress_bookings(queryset):
@@ -209,6 +240,21 @@ class BookingCreateView(APIView):
             start_time = serializer.validated_data.get("start_time")
             duration_hours = serializer.validated_data.get("duration_hours", 1)
 
+            # Enforce minimum one-hour advance booking time in Nepal timezone.
+            try:
+                nepal_tz = pytz.timezone("Asia/Kathmandu")
+                now_np = timezone.now().astimezone(nepal_tz)
+                booking_dt_np = nepal_tz.localize(datetime.combine(date, start_time))
+                if booking_dt_np < now_np + timedelta(hours=MINIMUM_ADVANCE_BOOKING_HOURS):
+                    return Response(
+                        {
+                            "error": "Booking must be at least 1 hour in advance from current time."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except Exception:
+                pass
+
             booking_stub = Booking(
                 family=request.user,
                 caregiver=caregiver,
@@ -261,11 +307,65 @@ class BookingCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class CheckAvailabilityView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            caregiver_id = request.query_params.get("caregiver_id")
+            date = request.query_params.get("date")
+            start_time = request.query_params.get("start_time")
+            duration = float(request.query_params.get("duration_hours", 1))
+
+            if not all([caregiver_id, date, start_time]):
+                return Response({"is_available": True})
+
+            new_start = datetime.strptime(
+                f"{date} {start_time[:5]}",
+                "%Y-%m-%d %H:%M",
+            )
+            new_end = new_start + timedelta(hours=duration)
+
+            existing = Booking.objects.filter(
+                caregiver_id=caregiver_id,
+                date=date,
+                status__in=["accepted", "in_progress", "awaiting_confirmation"],
+            )
+
+            for booking in existing:
+                try:
+                    booking_start = datetime.strptime(
+                        f"{booking.date} {str(booking.start_time)[:5]}",
+                        "%Y-%m-%d %H:%M",
+                    )
+                    booking_end = booking_start + timedelta(hours=float(booking.duration_hours or 1))
+                    if new_start < booking_end and new_end > booking_start:
+                        return Response(
+                            {
+                                "is_available": False,
+                                "message": (
+                                    "Caregiver is already booked from "
+                                    + booking_start.strftime("%I:%M %p")
+                                    + " to "
+                                    + booking_end.strftime("%I:%M %p")
+                                    + ". Please choose a different time."
+                                ),
+                            }
+                        )
+                except Exception:
+                    continue
+
+            return Response({"is_available": True})
+        except Exception:
+            return Response({"is_available": True})
+
+
 class BookingListView(APIView):
     """Returns bookings based on user role - sent vs received"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        expire_pending_bookings()
         # Careseekers see bookings they made, caregivers see requests they received
         if request.user.role == "careseeker":
             bookings = Booking.objects.filter(family=request.user)
@@ -276,7 +376,7 @@ class BookingListView(APIView):
                 {"error": "Access denied"},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        # Auto-expire pending bookings that exceeded 90-minute response window
+        # Auto-expire pending bookings that exceeded 30-minute response window
         expire_pending_bookings(bookings)
         expire_stale_in_progress_bookings(bookings)
         serializer = BookingSerializer(bookings, many=True, context={"request": request})
@@ -362,13 +462,13 @@ class BookingRespondView(APIView):
                 {"error": "Booking not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-        # Check if pending booking has expired (90-minute window)
+        # Check if pending booking has expired (30-minute window)
         if booking.status == "pending":
             if timezone.now() - booking.created_at > timedelta(minutes=PENDING_RESPONSE_WINDOW_MINUTES):
                 booking.status = "expired"
                 booking.save()
                 return Response(
-                    {"error": "This booking request has expired."},
+                    {"error": "Booking request expired due to no response from caregiver within 30 minutes."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         elif booking.status != "pending":
@@ -414,6 +514,7 @@ class AssignedBookingsView(APIView):
     permission_classes = [IsAuthenticated, IsCaregiver]
 
     def get(self, request):
+        expire_pending_bookings()
         bookings = Booking.objects.filter(caregiver=request.user).order_by("-created_at")
         expire_stale_in_progress_bookings(bookings)
         serializer = BookingSerializer(bookings, many=True, context={"request": request})

@@ -11,11 +11,13 @@ from .views import (
     BookingProofUploadView,
     BookingUpdateLocationView,
     BookingCaregiverLocationView,
+    CheckAvailabilityView,
 )
 
 urlpatterns = [
     path("caregivers/", VerifiedCaregiverListView.as_view(), name="caregivers-list"),
     path("", BookingCreateView.as_view(), name="booking-create"),
+    path("check-availability/", CheckAvailabilityView.as_view(), name="check-availability"),
     path("list/", BookingListView.as_view(), name="booking-list"),
     path("assigned/", AssignedBookingsView.as_view(), name="assigned-bookings"),
     path("<int:pk>/update-status/", BookingUpdateStatusView.as_view(), name="booking-update-status"),

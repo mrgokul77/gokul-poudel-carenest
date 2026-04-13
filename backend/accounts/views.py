@@ -564,6 +564,7 @@ class CareseekerBookingListView(APIView):
         from bookings.views import expire_pending_bookings
         from bookings.serializers import BookingSerializer
 
+        expire_pending_bookings()
         bookings = Booking.objects.filter(family=request.user).order_by("-created_at")
         expire_pending_bookings(bookings)
         bookings = Booking.objects.filter(family=request.user).order_by("-created_at")
