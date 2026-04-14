@@ -60,7 +60,7 @@ class ReviewCreateView(APIView):
 
         if Review.objects.filter(booking=booking).exists():
             return Response(
-                {"error": "Review already submitted"},
+                {"error": "A review has already been submitted for this booking."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -77,4 +77,31 @@ class ReviewCreateView(APIView):
         response_data["review_count"] = agg["review_count"] or 0
 
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+
+class ReviewBookingStatusView(APIView):
+    """Check whether a booking already has a submitted review."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, booking_id: int):
+        try:
+            booking = Booking.objects.get(id=booking_id)
+        except Booking.DoesNotExist:
+            return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        is_owner = booking.family_id == request.user.id
+        is_caregiver = booking.caregiver_id == request.user.id
+        is_admin = getattr(request.user, "role", None) == "admin"
+        if not (is_owner or is_caregiver or is_admin):
+            return Response({"error": "You are not allowed to view this booking review status."}, status=status.HTTP_403_FORBIDDEN)
+
+        review = Review.objects.filter(booking=booking).first()
+        payload = {
+            "booking_id": booking.id,
+            "has_review": review is not None,
+            "review_id": review.id if review else None,
+            "rating": review.rating if review else None,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
 

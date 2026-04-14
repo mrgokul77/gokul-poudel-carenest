@@ -83,8 +83,8 @@ class ReviewSerializer(serializers.ModelSerializer):
         if booking.status != "completed":
             raise serializers.ValidationError("Only completed bookings can be reviewed.")
 
-        if hasattr(booking, "review"):
-            raise serializers.ValidationError("Review already submitted for this booking.")
+        if hasattr(booking, "review") or Review.objects.filter(booking=booking).exists():
+            raise serializers.ValidationError("A review has already been submitted for this booking.")
 
         rating = validated_data["rating"]
         review_text = validated_data.get("review_text", "")

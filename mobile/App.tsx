@@ -194,6 +194,8 @@ type AttendanceEntry = {
 type AssignedBooking = {
   id: number;
   caregiver?: number;
+  has_review?: boolean;
+  review_rating?: number | null;
   family_name?: string;
   caregiver_name?: string;
   person_name?: string;
@@ -728,6 +730,27 @@ async function confirmCareseekerCompletion(token: string, bookingId: number) {
       'Content-Type': 'application/json',
     }),
   });
+
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+
+  return response.json();
+}
+
+async function fetchReviewBookingStatus(token: string, bookingId: number): Promise<{ has_review: boolean; review_id?: number | null }> {
+  const url = `${API_BASE_URL}/reviews/booking/${bookingId}/status/`;
+  const response = await fetchWithTimeout(url, {
+    method: 'GET',
+    headers: addMobileClientHeader({
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    }),
+  });
+
+  if (response.status === 401) {
+    throw makeUnauthorizedError();
+  }
 
   if (!response.ok) {
     throw new Error(await parseError(response));
@@ -1292,6 +1315,7 @@ function CaregiverDashboardScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [bookings, setBookings] = useState<AssignedBooking[]>([]);
+  const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'accepted' | 'in_progress' | 'awaiting_confirmation' | 'completed'>('all');
 
   const loadBookings = useCallback(async () => {
     if (!token) return;
@@ -1328,40 +1352,25 @@ function CaregiverDashboardScreen({ navigation }: any) {
     return () => clearInterval(intervalId);
   }, [loadBookings]);
 
-  const sections = [
-    {
-      key: 'pending',
-      title: 'Pending',
-      color: '#f59e0b',
-      items: bookings.filter((booking) => booking.status === 'pending'),
-    },
-    {
-      key: 'accepted',
-      title: 'Accepted',
-      color: '#0f766e',
-      items: bookings.filter((booking) => booking.status === 'accepted'),
-    },
-    {
-      key: 'in_progress',
-      title: 'In Progress',
-      color: '#22c55e',
-      items: bookings.filter((booking) => booking.status === 'in_progress'),
-    },
-    {
-      key: 'awaiting_confirmation',
-      title: 'Awaiting Confirmation',
-      color: '#f59e0b',
-      items: bookings.filter(
-        (booking) => booking.status === 'awaiting_confirmation' || booking.status === 'completion_requested',
-      ),
-    },
-    {
-      key: 'completed',
-      title: 'Completed',
-      color: '#64748b',
-      items: bookings.filter((booking) => booking.status === 'completed'),
-    },
+  const statusFilterOptions: Array<{
+    key: 'all' | 'pending' | 'accepted' | 'in_progress' | 'awaiting_confirmation' | 'completed';
+    label: string;
+  }> = [
+    { key: 'all', label: 'All' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'accepted', label: 'Accepted' },
+    { key: 'in_progress', label: 'In Progress' },
+    { key: 'awaiting_confirmation', label: 'Awaiting Confirmation' },
+    { key: 'completed', label: 'Completed' },
   ];
+
+  const filteredBookings = bookings.filter((booking) => {
+    if (selectedStatus === 'all') return true;
+    if (selectedStatus === 'awaiting_confirmation') {
+      return booking.status === 'awaiting_confirmation' || booking.status === 'completion_requested';
+    }
+    return booking.status === selectedStatus;
+  });
 
   const loadingState = (
     <View
@@ -1459,81 +1468,6 @@ function CaregiverDashboardScreen({ navigation }: any) {
     );
   }
 
-  const renderSection = (section: {
-    key: string;
-    title: string;
-    color: string;
-    items: AssignedBooking[];
-  }) => (
-    <View key={section.key}>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-          paddingHorizontal: 4,
-          paddingVertical: 8,
-          marginTop: 8,
-        }}
-      >
-        <View
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 999,
-            backgroundColor: section.color,
-          }}
-        />
-        <Text
-          style={{
-            fontSize: 13,
-            fontWeight: '700',
-            color: '#1e3a5f',
-            letterSpacing: 0.5,
-          }}
-        >
-          {section.title} ({section.items.length})
-        </Text>
-      </View>
-
-      <View style={{ gap: 8 }}>
-        {section.items.map((item) => (
-          <Pressable
-            key={item.id}
-            style={styles.polishedBookingCard}
-            onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
-          >
-            <View style={styles.polishedBookingHeader}>
-              <Text style={styles.polishedBookingTitle}>Careseeker: {item.family_name ?? 'Unknown'}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}> 
-                <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
-              </View>
-            </View>
-
-            <View style={styles.bookingDetailSection}>
-              <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
-              <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(item)}</Text>
-            </View>
-
-            <View style={styles.bookingDetailSection}>
-              <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
-              <Text style={styles.bookingDetailValue}>{getBookingServiceType(item)}</Text>
-            </View>
-
-            <View style={styles.bookingDetailSection}>
-              <Text style={styles.bookingDetailLabel}>DURATION</Text>
-              <Text style={styles.bookingDetailValue}>{item.duration_hours ?? 'N/A'} hours</Text>
-            </View>
-
-            {item.check_in_time ? (
-              <Text style={styles.bookingCheckInText}>Checked in at {new Date(item.check_in_time).toLocaleTimeString()}</Text>
-            ) : null}
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
@@ -1583,11 +1517,66 @@ function CaregiverDashboardScreen({ navigation }: any) {
               </Pressable>
             </View>
 
-            {sections.map(renderSection)}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.statusFilterRow}
+            >
+              {statusFilterOptions.map((option) => {
+                const isSelected = option.key === selectedStatus;
+                return (
+                  <Pressable
+                    key={option.key}
+                    onPress={() => setSelectedStatus(option.key)}
+                    style={[styles.statusFilterChip, isSelected && styles.statusFilterChipActive]}
+                  >
+                    <Text style={[styles.statusFilterChipText, isSelected && styles.statusFilterChipTextActive]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
-            {bookings.length === 0 ? (
+            <View style={{ gap: 8 }}>
+              {filteredBookings.map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={styles.polishedBookingCard}
+                  onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
+                >
+                  <View style={styles.polishedBookingHeader}>
+                    <Text style={styles.polishedBookingTitle}>Careseeker: {item.family_name ?? 'Unknown'}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}> 
+                      <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.bookingDetailSection}>
+                    <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
+                    <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(item)}</Text>
+                  </View>
+
+                  <View style={styles.bookingDetailSection}>
+                    <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
+                    <Text style={styles.bookingDetailValue}>{getBookingServiceType(item)}</Text>
+                  </View>
+
+                  <View style={styles.bookingDetailSection}>
+                    <Text style={styles.bookingDetailLabel}>DURATION</Text>
+                    <Text style={styles.bookingDetailValue}>{item.duration_hours ?? 'N/A'} hours</Text>
+                  </View>
+
+                  {item.check_in_time ? (
+                    <Text style={styles.bookingCheckInText}>Checked in at {new Date(item.check_in_time).toLocaleTimeString()}</Text>
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
+
+            {filteredBookings.length === 0 ? (
               <Text style={{ color: '#64748b', fontSize: 14, marginTop: 12 }}>
-                No assigned bookings found.
+                No bookings found for the selected status.
               </Text>
             ) : null}
           </View>
@@ -2175,6 +2164,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   const [reviewText, setReviewText] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  const [reviewExists, setReviewExists] = useState(false);
   const mapRef = useRef<MapView | null>(null);
 
   const now = new Date();
@@ -2281,6 +2271,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
       }
 
       setRatingSubmitted(true);
+      setReviewExists(true);
       setShowRating(false);
       Alert.alert('Thank You! ⭐', 'Your review has been submitted successfully.', [
         {
@@ -2372,10 +2363,35 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   }, [caregiverLocation, selfLocation]);
 
   useEffect(() => {
-    if (booking?.status === 'completed' && !ratingSubmitted) {
-      setShowRating(true);
+    if (!token || !booking || booking.status !== 'completed') {
+      setShowRating(false);
+      return;
     }
-  }, [booking?.status, ratingSubmitted]);
+
+    let isMounted = true;
+    const checkReviewStatus = async () => {
+      try {
+        const statusData = await fetchReviewBookingStatus(token, booking.id);
+        if (!isMounted) return;
+        const exists = Boolean(statusData?.has_review);
+        setReviewExists(exists);
+        setRatingSubmitted(exists);
+        setShowRating(!exists);
+      } catch (error) {
+        console.log('Review status check failed', error);
+        if (isMounted) {
+          setReviewExists(Boolean(booking.has_review));
+          setRatingSubmitted(Boolean(booking.has_review));
+          setShowRating(!booking.has_review);
+        }
+      }
+    };
+
+    checkReviewStatus();
+    return () => {
+      isMounted = false;
+    };
+  }, [token, booking?.id, booking?.status, booking?.has_review]);
 
   const caregiverUpdatedLabel = useMemo(
     () => getUpdatedAgoLabel(caregiverUpdatedAt, locationClockMs),
@@ -2789,6 +2805,12 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                 }}
               >
                 <Text style={{ color: '#ffffff', fontWeight: '700' }}>Completed</Text>
+              </View>
+            ) : null}
+
+            {booking.status === 'completed' && reviewExists ? (
+              <View style={styles.alreadyReviewedBadge}>
+                <Text style={styles.alreadyReviewedBadgeText}>Already Reviewed</Text>
               </View>
             ) : null}
 
@@ -3877,6 +3899,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 2,
   },
+  statusFilterRow: {
+    gap: 8,
+    paddingTop: 14,
+    paddingBottom: 10,
+  },
+  statusFilterChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    backgroundColor: '#ecfdf3',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  statusFilterChipActive: {
+    backgroundColor: '#22c55e',
+    borderColor: '#22c55e',
+  },
+  statusFilterChipText: {
+    color: '#166534',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  statusFilterChipTextActive: {
+    color: '#ffffff',
+  },
   statusBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
@@ -3979,6 +4026,21 @@ const styles = StyleSheet.create({
   completedBadgeText: {
     color: '#ffffff',
     fontWeight: '700',
+  },
+  alreadyReviewedBadge: {
+    marginTop: 8,
+    borderRadius: 999,
+    alignSelf: 'flex-start',
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#22c55e',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  alreadyReviewedBadgeText: {
+    color: '#166534',
+    fontWeight: '700',
+    fontSize: 12,
   },
   sosContainer: {
     width: '100%',
