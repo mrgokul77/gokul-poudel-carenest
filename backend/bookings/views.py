@@ -55,19 +55,24 @@ def expire_pending_bookings(queryset=None):
                 booking.status = "expired"
                 booking.save(update_fields=["status", "updated_at"])
 
-                expiry_message = "Booking request expired due to no response from caregiver within 30 minutes."
+                family_message = (
+                    f"Your booking request to {booking.caregiver.username} expired because there was no response within 30 minutes."
+                )
+                caregiver_message = (
+                    f"Your booking request from {booking.family.username} expired because it was not accepted or rejected within 30 minutes."
+                )
                 Notification.objects.create(
                     user=booking.family,
                     type="booking",
                     title="Booking Expired",
-                    message=expiry_message,
+                    message=family_message,
                     related_id=booking.id,
                 )
                 Notification.objects.create(
                     user=booking.caregiver,
                     type="booking",
                     title="Booking Request Expired",
-                    message=expiry_message,
+                    message=caregiver_message,
                     related_id=booking.id,
                 )
             except Exception as e:

@@ -516,21 +516,21 @@ class CareseekerDashboardSummaryView(APIView):
             if b.status == "accepted":
                 notifications.append({
                     "type": "accepted",
-                    "message": f"Caregiver {b.caregiver.username} accepted your booking",
+                    "message": f"Your booking with {b.caregiver.username} was accepted.",
                     "created_at": b.created_at.isoformat(),
                     "booking_id": b.id,
                 })
             elif b.status == "expired":
                 notifications.append({
                     "type": "expired",
-                    "message": "Booking request expired",
+                    "message": f"Your booking request to {b.caregiver.username} expired after no response.",
                     "created_at": b.created_at.isoformat(),
                     "booking_id": b.id,
                 })
             elif b.status == "completed":
                 notifications.append({
                     "type": "completed",
-                    "message": "Service completed",
+                    "message": f"Your service with {b.caregiver.username} was marked completed.",
                     "created_at": b.created_at.isoformat(),
                     "booking_id": b.id,
                 })
@@ -622,28 +622,28 @@ class NotificationsView(APIView):
                 if b.status == "accepted":
                     notifications.append({
                         "type": "accepted",
-                        "message": f"Caregiver {b.caregiver.username} accepted your booking",
+                        "message": f"Your booking with {b.caregiver.username} was accepted.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
                 elif b.status == "expired":
                     notifications.append({
                         "type": "expired",
-                        "message": "Booking request expired",
+                        "message": f"Your booking request to {b.caregiver.username} expired after no response.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
                 elif b.status == "completed":
                     notifications.append({
                         "type": "completed",
-                        "message": "Service completed",
+                        "message": f"Your service with {b.caregiver.username} was marked completed.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
                 elif b.status == "rejected":
                     notifications.append({
                         "type": "rejected",
-                        "message": b.rejection_reason or f"Caregiver {b.caregiver.username} declined your booking",
+                        "message": b.rejection_reason or f"Your booking with {b.caregiver.username} was declined.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
@@ -651,28 +651,35 @@ class NotificationsView(APIView):
                 if b.status == "pending":
                     notifications.append({
                         "type": "new_request",
-                        "message": f"New booking request from {b.family.username}",
+                        "message": f"You received a new booking request from {b.family.username}.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
                 elif b.status == "expired":
                     notifications.append({
                         "type": "expired",
-                        "message": "Booking request expired",
+                        "message": f"Your booking request from {b.family.username} expired after no response.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
                 elif b.status == "completed":
                     notifications.append({
                         "type": "completed",
-                        "message": "Service completed",
+                        "message": f"Your service for {b.family.username} was marked completed.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })
-                elif b.status in ("accepted", "completion_requested", "awaiting_confirmation"):
+                elif b.status == "accepted":
                     notifications.append({
                         "type": "accepted",
-                        "message": f"Booking with {b.family.username} accepted",
+                        "message": f"You accepted the booking with {b.family.username}.",
+                        "created_at": b.created_at.isoformat(),
+                        "booking_id": b.id,
+                    })
+                elif b.status in ("completion_requested", "awaiting_confirmation"):
+                    notifications.append({
+                        "type": "completion_requested",
+                        "message": f"You requested completion confirmation from {b.family.username}.",
                         "created_at": b.created_at.isoformat(),
                         "booking_id": b.id,
                     })

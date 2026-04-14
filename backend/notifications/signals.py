@@ -118,11 +118,12 @@ def on_booking_change(instance, created, **kwargs):
         return
 
     if instance.status == "accepted":
+        caregiver_name = _display_username(instance.caregiver) or "your caregiver"
         _create_and_broadcast(
             instance.family,
             "booking",
             "Booking accepted",
-            "Caregiver accepted your booking",
+            f"Your booking with {caregiver_name} has been accepted.",
             instance.id,
         )
     elif instance.status == "rejected":
@@ -130,53 +131,59 @@ def on_booking_change(instance, created, **kwargs):
             instance.family,
             "booking",
             "Booking declined",
-            instance.rejection_reason or "Caregiver rejected your booking.",
+            instance.rejection_reason or "Your booking request was declined by the caregiver.",
             instance.id,
         )
     elif instance.status == "in_progress":
+        caregiver_name = _display_username(instance.caregiver) or "your caregiver"
         _create_and_broadcast(
             instance.family,
             "booking",
             "Service started",
-            f"Caregiver {instance.caregiver.username} checked in for your booking.",
+            f"{caregiver_name} checked in and your service is now in progress.",
             instance.id,
         )
     elif instance.status in ("completion_requested", "awaiting_confirmation"):
+        caregiver_name = _display_username(instance.caregiver) or "your caregiver"
         _create_and_broadcast(
             instance.family,
             "booking",
             "Service completion requested",
-            f"Caregiver {instance.caregiver.username} has requested completion confirmation.",
+            f"{caregiver_name} finished the service and requested your confirmation.",
             instance.id,
         )
     elif instance.status == "completed":
+        caregiver_name = _display_username(instance.caregiver) or "your caregiver"
+        family_name = _display_username(instance.family) or "the careseeker"
         _create_and_broadcast(
             instance.family,
             "booking",
             "Booking completed",
-            f"Caregiver {instance.caregiver.username} completed your booking.",
+            f"Your booking with {caregiver_name} has been marked as completed.",
             instance.id,
         )
         _create_and_broadcast(
             instance.caregiver,
             "booking",
             "Booking completed",
-            f"Booking with {instance.family.username} has been marked complete.",
+            f"You marked the booking with {family_name} as completed.",
             instance.id,
         )
     elif instance.status == "expired":
+        caregiver_name = _display_username(instance.caregiver) or "the caregiver"
+        family_name = _display_username(instance.family) or "the careseeker"
         _create_and_broadcast(
             instance.family,
             "booking",
             "Booking expired",
-            "Your booking request has expired.",
+            f"Your booking request to {caregiver_name} expired because there was no response within 30 minutes.",
             instance.id,
         )
         _create_and_broadcast(
             instance.caregiver,
             "booking",
             "Booking expired",
-            "A booking request has expired.",
+            f"Your booking request from {family_name} expired because it was not accepted or rejected within 30 minutes.",
             instance.id,
         )
 
@@ -288,6 +295,15 @@ def on_payment_change(instance, created, update_fields, **kwargs):
                 ),
                 instance.id,
             )
+        if booking and booking.caregiver:
+            payer = family_name or "the careseeker"
+            _create_and_broadcast(
+                booking.caregiver,
+                "payment",
+                "Payment received",
+                f"You received Rs.{amount_str} from {payer} for your completed service.",
+                instance.id,
+            )
     elif instance.status == "failed":
         if booking and booking.family:
             payee = caregiver_name or "your caregiver"
@@ -299,6 +315,15 @@ def on_payment_change(instance, created, update_fields, **kwargs):
                     f"Your payment to {payee} could not be processed. "
                     f"Please try again when you are ready."
                 ),
+                instance.id,
+            )
+        if booking and booking.caregiver:
+            payer = family_name or "the careseeker"
+            _create_and_broadcast(
+                booking.caregiver,
+                "payment",
+                "Payment failed",
+                f"Payment of Rs.{amount_str} from {payer} could not be processed.",
                 instance.id,
             )
 
