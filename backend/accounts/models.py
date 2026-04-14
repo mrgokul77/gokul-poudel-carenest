@@ -93,7 +93,6 @@ class CaregiverProfile(models.Model):
     )
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="caregiver_profile")
     service_types = models.JSONField(default=list, blank=True)  # caregiver services offered
-    languages_spoken = models.JSONField(default=list, blank=True)
     training_authority = models.CharField(max_length=255, blank=True)
     certification_year = models.IntegerField(null=True, blank=True)
     available_hours = models.CharField(max_length=255, blank=True)

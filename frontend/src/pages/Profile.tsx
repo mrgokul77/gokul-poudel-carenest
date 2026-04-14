@@ -22,7 +22,6 @@ import {
   HousePlus,
   Building2,
   Activity,
-  Languages,
 } from "lucide-react";
 
 // Mapping of service name to icon component
@@ -135,7 +134,6 @@ const Profile = () => {
 
   const [caregiverForm, setCaregiverForm] = useState({
     service_types: [] as string[],
-    languages_spoken: [] as string[],
     training_authority: "",
     certification_year: "" as string | number,
     available_hours: "",
@@ -143,7 +141,6 @@ const Profile = () => {
     gender: "" as string,
     hourly_rate: "" as string | number,
   });
-  const [languageInput, setLanguageInput] = useState("");
 
   /* --------------------------- LOAD PROFILE --------------------------- */
 
@@ -184,7 +181,6 @@ const Profile = () => {
       if (data.role === "caregiver" && data.caregiver_details) {
         setCaregiverForm({
           service_types: data.caregiver_details.service_types || [],
-          languages_spoken: data.caregiver_details.languages_spoken || [],
           training_authority: data.caregiver_details.training_authority || "",
           certification_year: data.caregiver_details.certification_year ?? "",
           available_hours: data.caregiver_details.available_hours || "",
@@ -225,45 +221,6 @@ const Profile = () => {
       return;
     }
     setCaregiverForm({ ...caregiverForm, [name]: value });
-  };
-
-  const normalizeLanguage = (value: string) => value.trim().replace(/\s+/g, " ");
-
-  const addLanguagesFromInput = (rawValue: string) => {
-    const nextValues = rawValue
-      .split(",")
-      .map(normalizeLanguage)
-      .filter(Boolean);
-
-    if (nextValues.length === 0) {
-      return;
-    }
-
-    setCaregiverForm((current) => {
-      const merged = new Set(current.languages_spoken.map(normalizeLanguage));
-      nextValues.forEach((language) => merged.add(language));
-      return {
-        ...current,
-        languages_spoken: Array.from(merged),
-      };
-    });
-    setLanguageInput("");
-  };
-
-  const removeLanguage = (languageToRemove: string) => {
-    setCaregiverForm((current) => ({
-      ...current,
-      languages_spoken: current.languages_spoken.filter(
-        (language) => language !== languageToRemove,
-      ),
-    }));
-  };
-
-  const handleLanguageKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addLanguagesFromInput(languageInput);
-    }
   };
 
   const toggleServiceType = (type: string) => {
@@ -322,7 +279,6 @@ const Profile = () => {
             caregiverForm.hourly_rate === "" || caregiverForm.hourly_rate == null
               ? null
               : Number(caregiverForm.hourly_rate),
-          languages_spoken: caregiverForm.languages_spoken,
         };
         await api.patch("/profile/caregiver/", payload);
       }
@@ -877,79 +833,6 @@ const Profile = () => {
               </div>
             )}
           </div>
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <h3 className="text-lg font-bold text-gray-800 mb-4">
-                  Languages Spoken
-                </h3>
-                {mode === "edit" ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-gray-500">
-                      Type a language and press Enter or comma to add it.
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <div className="relative flex-1">
-                        <Languages size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="text"
-                          value={languageInput}
-                          onChange={(e) => setLanguageInput(e.target.value)}
-                          onKeyDown={handleLanguageKeyDown}
-                          className="w-full bg-green-50 border border-gray-300 pl-10 pr-3 py-2.5 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
-                          placeholder="e.g. Nepali, English, Newari"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => addLanguagesFromInput(languageInput)}
-                        className="px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg transition text-sm font-medium"
-                      >
-                        Add Language
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {caregiverForm.languages_spoken.length > 0 ? (
-                        caregiverForm.languages_spoken.map((language) => (
-                          <span
-                            key={language}
-                            className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium"
-                          >
-                            {language}
-                            <button
-                              type="button"
-                              onClick={() => removeLanguage(language)}
-                              className="text-green-600 hover:text-green-800"
-                              aria-label={`Remove ${language}`}
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-gray-400 italic text-sm">
-                          No languages added yet.
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {caregiverForm.languages_spoken.length > 0 ? (
-                      caregiverForm.languages_spoken.map((language) => (
-                        <span
-                          key={language}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm font-medium"
-                        >
-                          {language}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-gray-400 italic text-sm">
-                        Not set
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
         </div>
           </div>
 

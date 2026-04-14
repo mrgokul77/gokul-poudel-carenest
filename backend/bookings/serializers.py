@@ -19,7 +19,6 @@ class CaregiverListSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     user_id = serializers.IntegerField(source="user.id", read_only=True)
     service_types = serializers.ListField(child=serializers.CharField(), read_only=True)
-    languages_spoken = serializers.ListField(child=serializers.CharField(), read_only=True)
     training_authority = serializers.CharField(read_only=True)
     certification_year = serializers.IntegerField(read_only=True, allow_null=True)
     available_hours = serializers.CharField(read_only=True)
@@ -38,7 +37,6 @@ class CaregiverListSerializer(serializers.ModelSerializer):
             "username",
             "email",
             "service_types",
-            "languages_spoken",
             "training_authority",
             "certification_year",
             "available_hours",

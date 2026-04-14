@@ -109,7 +109,6 @@ class CaregiverProfileSerializer(serializers.ModelSerializer):
         model = CaregiverProfile
         fields = [
             "service_types",
-            "languages_spoken",
             "training_authority",
             "certification_year",
             "available_hours",

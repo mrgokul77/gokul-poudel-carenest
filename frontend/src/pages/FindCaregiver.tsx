@@ -20,7 +20,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Heart,
-  Languages,
 } from "lucide-react";
 
 interface Caregiver {
@@ -28,7 +27,6 @@ interface Caregiver {
   username: string;
   email: string;
   service_types: string[];
-  languages_spoken?: string[];
   training_authority?: string;
   certification_year?: number | null;
   available_hours: string;
@@ -112,7 +110,6 @@ const FindCaregiver = () => {
   }, [isAuthenticated]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [languageQuery, setLanguageQuery] = useState("");
   const [filterService, setFilterService] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
   const [filterGender, setFilterGender] = useState("");
@@ -239,7 +236,7 @@ const FindCaregiver = () => {
 
   useEffect(() => {
     fetchCaregivers();
-  }, [filterLocation, filterGender, languageQuery]);
+  }, [filterLocation, filterGender]);
 
   const fetchCaregivers = async () => {
     setLoading(true);
@@ -248,7 +245,6 @@ const FindCaregiver = () => {
       if (filterLocation) params.append("location", filterLocation);
       if (filterGender && filterGender !== "")
         params.append("gender", filterGender);
-      if (languageQuery.trim()) params.append("language", languageQuery.trim());
 
       const queryString = params.toString();
       const url = queryString ? `caregivers/?${queryString}` : "caregivers/";
@@ -284,13 +280,7 @@ const FindCaregiver = () => {
     const matchService =
       !filterService ||
       (c.service_types && c.service_types.includes(filterService));
-    const matchLanguage =
-      !languageQuery ||
-      (c.languages_spoken &&
-        c.languages_spoken.some((language) =>
-          language.toLowerCase().includes(languageQuery.toLowerCase()),
-        ));
-    return matchSearch && matchService && matchLanguage;
+    return matchSearch && matchService;
   });
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
@@ -366,7 +356,6 @@ const FindCaregiver = () => {
         verification_status: "approved",
         caregiver_details: {
           service_types: c.service_types,
-          languages_spoken: c.languages_spoken,
           training_authority: c.training_authority,
           certification_year: c.certification_year,
           available_hours: c.available_hours,
@@ -786,16 +775,6 @@ const FindCaregiver = () => {
                   Filter
                 </button>
               </div>
-              <div className="mt-3 relative">
-                <Languages className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search by language spoken"
-                  value={languageQuery}
-                  onChange={(e) => setLanguageQuery(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3.5 border border-gray-300 rounded-lg bg-green-50 text-gray-800 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/40 focus:border-green-500"
-                />
-              </div>
             </section>
 
             {/* Caregiver listing */}
@@ -1063,7 +1042,6 @@ const FindCaregiver = () => {
                 type="button"
                 onClick={() => {
                   clearFilters();
-                  setLanguageQuery("");
                   setShowFilterModal(false);
                 }}
                 className="px-3 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"

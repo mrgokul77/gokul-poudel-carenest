@@ -217,13 +217,6 @@ class VerifiedCaregiverListView(APIView):
         gender = request.query_params.get("gender", "").strip()
         if gender and gender.lower() != "all":
             profiles = profiles.filter(gender=gender.lower())
-
-        language = request.query_params.get("language", "").strip().lower()
-        if language:
-            profiles = [
-                profile for profile in profiles
-                if any(language in (entry or "").lower() for entry in (profile.languages_spoken or []))
-            ]
         
         serializer = CaregiverListSerializer(profiles, many=True, context={"request": request})
         return Response(serializer.data)

@@ -6,7 +6,6 @@ import {
   Briefcase,
   Star,
   Check,
-  Languages,
 } from "lucide-react";
 import { resolveBackendMediaUrl } from "../utils/media";
 
@@ -22,7 +21,6 @@ export interface CaregiverProfileCardData {
   verification_status?: string | null;
   caregiver_details?: {
     service_types?: string[];
-    languages_spoken?: string[];
     training_authority?: string;
     certification_year?: number | string | null;
     available_hours?: string;
@@ -176,28 +174,6 @@ const CaregiverProfileCard = ({ profile }: CaregiverProfileCardProps) => {
                 </label>
                 <div className="bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg text-gray-700">
                   {cd?.available_hours || "Flexible"}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">
-                  Languages Spoken
-                </label>
-                <div className="bg-green-50 border border-gray-300 px-3 py-2.5 rounded-lg text-gray-700">
-                  <div className="flex flex-wrap gap-2">
-                    {(cd?.languages_spoken?.length ?? 0) > 0 ? (
-                      (cd?.languages_spoken ?? []).map((language) => (
-                        <span
-                          key={language}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium"
-                        >
-                          <Languages size={12} />
-                          {language}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-gray-500">Not set</span>
-                    )}
-                  </div>
                 </div>
               </div>
               <div>
