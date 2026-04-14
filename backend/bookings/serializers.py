@@ -179,10 +179,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             today = timezone.localdate()
             if date == today:
                 now = timezone.localtime()
-                min_booking_time = now + timedelta(hours=1)
-                min_slot_time = min_booking_time.replace(minute=0, second=0, microsecond=0)
-                if min_booking_time.minute > 0 or min_booking_time.second > 0 or min_booking_time.microsecond > 0:
-                    min_slot_time += timedelta(hours=1)
+                current_slot_time = now.replace(minute=0, second=0, microsecond=0)
+                min_slot_time = current_slot_time + timedelta(hours=1)
                 start_dt = timezone.make_aware(
                     datetime.combine(date, start_time),
                     timezone.get_current_timezone(),

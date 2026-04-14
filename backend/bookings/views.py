@@ -267,7 +267,9 @@ class BookingCreateView(APIView):
                 nepal_tz = pytz.timezone("Asia/Kathmandu")
                 now_np = timezone.now().astimezone(nepal_tz)
                 booking_dt_np = nepal_tz.localize(datetime.combine(date, start_time))
-                if booking_dt_np < now_np + timedelta(hours=MINIMUM_ADVANCE_BOOKING_HOURS):
+                current_slot_np = now_np.replace(minute=0, second=0, microsecond=0)
+                min_slot_np = current_slot_np + timedelta(hours=MINIMUM_ADVANCE_BOOKING_HOURS)
+                if booking_dt_np < min_slot_np:
                     return Response(
                         {
                             "error": "Booking must be at least 1 hour in advance from current time."

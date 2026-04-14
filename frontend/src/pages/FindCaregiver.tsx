@@ -634,7 +634,7 @@ const FindCaregiver = () => {
     return d.toISOString().split("T")[0];
   };
 
-  /** Hourly slots 08:00–20:00. For today, only slots >= currentTime + 1 hour (rounded up to next slot). */
+  /** Hourly slots 08:00–20:00. For today, only slots >= current hour + 1 hour. */
   const getAvailableTimeSlots = (date?: string): { value: string; label: string }[] => {
     const allSlots: { value: string; label: string }[] = [];
     for (let h = 8; h <= 20; h++) {
@@ -650,12 +650,9 @@ const FindCaregiver = () => {
     }
 
     const now = new Date();
-    const minTime = new Date(now.getTime() + 1 * 60 * 60 * 1000);
-    const nextSlot = new Date(minTime);
+    const nextSlot = new Date(now);
     nextSlot.setMinutes(0, 0, 0);
-    if (minTime.getMinutes() > 0 || minTime.getSeconds() > 0) {
-      nextSlot.setHours(nextSlot.getHours() + 1);
-    }
+    nextSlot.setHours(nextSlot.getHours() + 1);
 
     const minHour = nextSlot.getHours();
     const minMinutes = nextSlot.getMinutes();
