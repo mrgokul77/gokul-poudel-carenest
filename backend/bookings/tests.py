@@ -52,7 +52,7 @@ class BookingTests(TestCase):
     def test_invalid_phone_number(self):
         response = self.client.post('/api/bookings/', {
             'caregiver': self.caregiver.id,
-            'service_types': ['elderly care'],
+            'service_types': ['Elderly Companionship'],
             'date': (now() + timedelta(days=1)).date().isoformat(),
             'start_time': '09:00',
             'duration_hours': 3,
@@ -68,7 +68,7 @@ class BookingTests(TestCase):
     def test_duplicate_booking_request(self):
         booking_data = {
             'caregiver': self.caregiver.id,
-            'service_types': ['elderly care'],
+            'service_types': ['Elderly Companionship'],
             'date': (now() + timedelta(days=2)).date().isoformat(),
             'start_time': '10:00',
             'duration_hours': 4,
