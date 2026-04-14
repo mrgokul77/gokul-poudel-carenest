@@ -16,8 +16,10 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -29,11 +31,13 @@ import {
 import { Easing } from 'react-native';
 
 const API_BASE_URL = 'https://gokul-poudel-carenest.onrender.com/api';
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
 const AUTH_TOKEN_KEY = 'carenest_auth_token';
 const AUTH_USER_KEY = 'carenest_auth_user';
 const JWT_TOKEN_KEY = 'jwt_token';
 const USER_ROLE_KEY = 'user_role';
 const API_TIMEOUT_MS = 30000;
+const AUTH_UNAUTHORIZED_CODE = 'AUTH_UNAUTHORIZED';
 
 const BOOKING_STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -65,6 +69,16 @@ function getStatusLabel(status?: string | null) {
 function getStatusColor(status?: string | null) {
   const normalizedStatus = status ?? 'pending';
   return BOOKING_STATUS_COLORS[normalizedStatus] ?? '#64748b';
+}
+
+function getBookingServiceType(booking: AssignedBooking) {
+  return booking.service_type ?? booking.service_name ?? 'General Care Support';
+}
+
+function getBookingDateTimeLabel(booking: AssignedBooking) {
+  const dateLabel = booking.date ? new Date(booking.date).toLocaleDateString() : 'Date pending';
+  const timeLabel = booking.start_time ?? 'Time pending';
+  return `${dateLabel} at ${timeLabel}`;
 }
 
 /**
@@ -131,6 +145,7 @@ type RootStackParamList = {
 
 type MainTabParamList = {
   Home: undefined;
+  'Booking Requests': undefined;
   Notifications: undefined;
 };
 
@@ -141,6 +156,7 @@ type CaregiverHomeStackParamList = {
 
 type CareseekerTabParamList = {
   Home: undefined;
+  'My Bookings': undefined;
   Notifications: undefined;
 };
 
@@ -177,9 +193,12 @@ type AttendanceEntry = {
 
 type AssignedBooking = {
   id: number;
+  caregiver?: number;
   family_name?: string;
   caregiver_name?: string;
   person_name?: string;
+  service_type?: string;
+  service_name?: string;
   emergency_contact_phone?: string;
   date?: string;
   start_time?: string;
@@ -251,6 +270,18 @@ async function persistAuthState(token: string, role: string, authUser: AuthUser)
     [AUTH_USER_KEY, JSON.stringify(authUser)],
     [USER_ROLE_KEY, role],
   ]);
+}
+
+async function clearPersistedAuthState() {
+  await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY, JWT_TOKEN_KEY, USER_ROLE_KEY]);
+}
+
+function makeUnauthorizedError() {
+  return new Error(AUTH_UNAUTHORIZED_CODE);
+}
+
+function isUnauthorizedError(error: unknown) {
+  return error instanceof Error && error.message === AUTH_UNAUTHORIZED_CODE;
 }
 
 async function parseError(response: Response) {
@@ -361,6 +392,10 @@ async function fetchUserProfile(token: string) {
       },
     });
 
+    if (response.status === 401) {
+      throw makeUnauthorizedError();
+    }
+
     if (!response.ok) {
       throw new Error(await parseError(response));
     }
@@ -436,6 +471,36 @@ function getUpdatedAgoLabel(updatedAt: string | null, nowMs: number) {
   return `Updated ${secondsAgo} seconds ago`;
 }
 
+function isValidCoordinatePair(
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+) {
+  return (
+    typeof latitude === 'number' &&
+    typeof longitude === 'number' &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    !(latitude === 0 && longitude === 0)
+  );
+}
+
+function resolveProofImageUrl(proofImage?: string | null) {
+  const value = typeof proofImage === 'string' ? proofImage.trim() : '';
+  if (!value || value.toLowerCase() === 'null') {
+    return null;
+  }
+
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    return value;
+  }
+
+  if (value.startsWith('/')) {
+    return `${API_ORIGIN}${value}`;
+  }
+
+  return `${API_ORIGIN}/${value}`;
+}
+
 function EmergencyAlertButton({
   subtitle,
   onPress,
@@ -481,7 +546,10 @@ function EmergencyAlertButton({
           onPress={onPress}
           disabled={disabled}
         >
-          <Text style={styles.sosButtonText}>⚠ SOS Emergency</Text>
+          <View style={styles.sosButtonRow}>
+            <Ionicons name="warning" size={22} color="#ffffff" />
+            <Text style={styles.sosButtonText}>SOS EMERGENCY</Text>
+          </View>
         </Pressable>
       </Animated.View>
       <Text style={styles.sosSubtitle}>{subtitle}</Text>
@@ -525,6 +593,10 @@ async function fetchAssignedBookings(token: string): Promise<AssignedBooking[]> 
     },
   });
 
+  if (response.status === 401) {
+    throw makeUnauthorizedError();
+  }
+
   if (!response.ok) {
     throw new Error(await parseError(response));
   }
@@ -542,6 +614,10 @@ async function fetchCareseekerBookings(token: string): Promise<AssignedBooking[]
     }),
   });
 
+  if (response.status === 401) {
+    throw makeUnauthorizedError();
+  }
+
   if (!response.ok) {
     throw new Error(await parseError(response));
   }
@@ -558,6 +634,10 @@ async function fetchCareseekerBooking(token: string, bookingId: number): Promise
       'Content-Type': 'application/json',
     }),
   });
+
+  if (response.status === 401) {
+    throw makeUnauthorizedError();
+  }
 
   if (!response.ok) {
     throw new Error(await parseError(response));
@@ -712,23 +792,46 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
         ]);
 
         if (savedToken && savedRole) {
-          setToken(savedToken);
           const parsedUser = savedUser ? JSON.parse(savedUser) : null;
+          const normalizedRole = normalizeRole(savedRole);
+
+          try {
+            // Validate stored token before entering the authenticated app.
+            await fetchUserProfile(savedToken);
+          } catch (error) {
+            if (isUnauthorizedError(error)) {
+              await clearPersistedAuthState();
+              return;
+            }
+          }
+
+          setToken(savedToken);
           setUser({
             email: parsedUser?.email ?? '',
             name: parsedUser?.name ?? 'User',
-            role: normalizeRole(savedRole),
+            role: normalizedRole,
           });
         } else {
           const fallbackToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
           const fallbackUser = await AsyncStorage.getItem(AUTH_USER_KEY);
           if (fallbackToken && fallbackUser) {
-            setToken(fallbackToken);
-            setUser(JSON.parse(fallbackUser));
+            try {
+              await fetchUserProfile(fallbackToken);
+              setToken(fallbackToken);
+              setUser(JSON.parse(fallbackUser));
+            } catch (error) {
+              if (isUnauthorizedError(error)) {
+                await clearPersistedAuthState();
+                return;
+              }
+
+              setToken(fallbackToken);
+              setUser(JSON.parse(fallbackUser));
+            }
           }
         }
       } catch {
-        await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY, JWT_TOKEN_KEY, USER_ROLE_KEY]);
+        await clearPersistedAuthState();
       } finally {
         setIsBootstrapping(false);
       }
@@ -845,7 +948,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, AUTH_USER_KEY, JWT_TOKEN_KEY, USER_ROLE_KEY]);
+    await clearPersistedAuthState();
     setToken(null);
     setUser(null);
   }, []);
@@ -868,6 +971,7 @@ function AuthScreen({ mode, onSubmit, onSignupSuccess, onSwitch }: {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('careseeker');
+  const [focusedField, setFocusedField] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -917,79 +1021,91 @@ function AuthScreen({ mode, onSubmit, onSignupSuccess, onSwitch }: {
         </View>
 
         <View style={styles.authCard}>
-          {/* Title and Subtitle */}
           <Text style={styles.authTitle}>
             {isSignup ? 'Create an account' : 'Welcome Back'}
           </Text>
           <Text style={styles.authSubtitle}>
-            {isSignup ? 'Welcome to CareNest' : 'Log In to your account'}
+            {isSignup ? 'Welcome to CareNest' : 'Log in to your account'}
           </Text>
 
-          {/* Name Field - Signup Only */}
           {isSignup ? (
-            <TextInput
-              style={styles.input}
-              placeholder="Username"
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-              placeholderTextColor="#cbd5e1"
-            />
+            <View style={styles.authFieldGroup}>
+              <Text style={styles.fieldLabel}>Username</Text>
+              <TextInput
+                style={[styles.input, focusedField === 'name' && styles.inputFocused]}
+                placeholder="Enter your username"
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+                placeholderTextColor="#94a3b8"
+                onFocus={() => setFocusedField('name')}
+                onBlur={() => setFocusedField((prev) => (prev === 'name' ? null : prev))}
+              />
+            </View>
           ) : null}
 
-          {/* Email Field */}
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            placeholderTextColor="#cbd5e1"
-          />
-
-          {/* Password Field */}
-          <View style={styles.passwordContainer}>
+          <View style={styles.authFieldGroup}>
+            <Text style={styles.fieldLabel}>Email</Text>
             <TextInput
-              style={styles.passwordInput}
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              placeholderTextColor="#cbd5e1"
+              style={[styles.input, focusedField === 'email' && styles.inputFocused]}
+              placeholder="Enter your email"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              placeholderTextColor="#94a3b8"
+              onFocus={() => setFocusedField('email')}
+              onBlur={() => setFocusedField((prev) => (prev === 'email' ? null : prev))}
             />
-            <Pressable
-              style={styles.eyeIcon}
-              onPress={() => setShowPassword(!showPassword)}
-            >
-              <Text style={styles.eyeIconText}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
-            </Pressable>
           </View>
 
-          {/* Forgot Password - Login Only */}
+          <View style={styles.authFieldGroup}>
+            <Text style={styles.fieldLabel}>Password</Text>
+            <View style={[styles.passwordContainer, focusedField === 'password' && styles.inputFocused]}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Enter your password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                placeholderTextColor="#94a3b8"
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField((prev) => (prev === 'password' ? null : prev))}
+              />
+              <Pressable
+                style={styles.eyeIcon}
+                onPress={() => setShowPassword(!showPassword)}
+              >
+                <Text style={styles.eyeIconText}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
+              </Pressable>
+            </View>
+          </View>
+
           {!isSignup ? (
-            <Pressable>
+            <Pressable style={styles.forgotPasswordWrap}>
               <Text style={styles.forgotPassword}>Forgot Password?</Text>
             </Pressable>
           ) : null}
 
-          {/* Role Dropdown - Signup Only */}
           {isSignup ? (
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={role}
-                onValueChange={setRole}
-                style={styles.picker}
-              >
-                <Picker.Item label="Careseeker" value="careseeker" />
-                <Picker.Item label="Caregiver" value="caregiver" />
-              </Picker>
+            <View style={styles.authFieldGroup}>
+              <Text style={styles.fieldLabel}>Role</Text>
+              <View style={[styles.pickerContainer, focusedField === 'role' && styles.inputFocused]}>
+                <Picker
+                  selectedValue={role}
+                  onValueChange={setRole}
+                  style={styles.picker}
+                  onFocus={() => setFocusedField('role')}
+                >
+                  <Picker.Item label="Careseeker" value="careseeker" />
+                  <Picker.Item label="Caregiver" value="caregiver" />
+                </Picker>
+              </View>
             </View>
           ) : null}
 
-          {/* Submit Button */}
           <Pressable
-            style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
+            style={[styles.authSubmitButton, loading && styles.primaryButtonDisabled]}
             onPress={handleSubmit}
             disabled={loading}
           >
@@ -1002,13 +1118,16 @@ function AuthScreen({ mode, onSubmit, onSignupSuccess, onSwitch }: {
             )}
           </Pressable>
 
-          {/* Switch Mode Link */}
-          <Pressable style={styles.linkButton} onPress={onSwitch}>
-            <Text style={styles.linkText}>
-              {isSignup
-                ? 'Already have an account? Log In'
-                : "Don't have an account? Sign Up"}
-            </Text>
+          <Pressable style={styles.authSwitchWrap} onPress={onSwitch}>
+            {isSignup ? (
+              <Text style={styles.authSwitchText}>
+                Already have an account? <Text style={styles.authSwitchAction}>Log In</Text>
+              </Text>
+            ) : (
+              <Text style={styles.authSwitchText}>
+                Don&apos;t have an account? <Text style={styles.authSwitchAction}>Sign Up</Text>
+              </Text>
+            )}
           </Pressable>
         </View>
       </ScrollView>
@@ -1182,6 +1301,11 @@ function CaregiverDashboardScreen({ navigation }: any) {
       const data = await fetchAssignedBookings(token);
       setBookings(Array.isArray(data) ? data : []);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        await logout();
+        return;
+      }
+
       const message = error instanceof Error ? error.message : 'Unable to load bookings';
       setLoadError(message);
       setBookings([]);
@@ -1376,63 +1500,34 @@ function CaregiverDashboardScreen({ navigation }: any) {
         {section.items.map((item) => (
           <Pressable
             key={item.id}
-            style={{
-              backgroundColor: '#ffffff',
-              borderRadius: 12,
-              padding: 14,
-              marginBottom: 8,
-              borderWidth: 1,
-              borderColor: '#dcfce7',
-              shadowColor: '#000',
-              shadowOffset: { width: 0, height: 1 },
-              shadowOpacity: 0.05,
-              shadowRadius: 4,
-              elevation: 1,
-            }}
+            style={styles.polishedBookingCard}
             onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
           >
-            <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-              }}
-            >
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: '#1e3a5f' }}>
-                  {item.family_name ?? 'Careseeker'}
-                </Text>
-                <Text style={{ fontSize: 13, color: '#64748b' }}>
-                  📅 {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'} at {item.start_time ?? ''}
-                </Text>
-                <Text style={{ fontSize: 13, color: '#64748b' }}>
-                  ⏱ {item.duration_hours ?? 'N/A'} hours
-                </Text>
-                {item.check_in_time ? (
-                  <Text style={{ fontSize: 12, color: '#16a34a' }}>
-                    ✓ Checked in: {new Date(item.check_in_time).toLocaleTimeString()}
-                  </Text>
-                ) : null}
-              </View>
-              <View
-                style={{
-                  backgroundColor: getStatusColor(item.status),
-                  borderRadius: 999,
-                  paddingHorizontal: 10,
-                  paddingVertical: 4,
-                }}
-              >
-                <Text
-                  style={{
-                    color: '#ffffff',
-                    fontSize: 11,
-                    fontWeight: '700',
-                  }}
-                >
-                  {getStatusLabel(item.status)}
-                </Text>
+            <View style={styles.polishedBookingHeader}>
+              <Text style={styles.polishedBookingTitle}>Careseeker: {item.family_name ?? 'Unknown'}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}> 
+                <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
               </View>
             </View>
+
+            <View style={styles.bookingDetailSection}>
+              <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
+              <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(item)}</Text>
+            </View>
+
+            <View style={styles.bookingDetailSection}>
+              <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
+              <Text style={styles.bookingDetailValue}>{getBookingServiceType(item)}</Text>
+            </View>
+
+            <View style={styles.bookingDetailSection}>
+              <Text style={styles.bookingDetailLabel}>DURATION</Text>
+              <Text style={styles.bookingDetailValue}>{item.duration_hours ?? 'N/A'} hours</Text>
+            </View>
+
+            {item.check_in_time ? (
+              <Text style={styles.bookingCheckInText}>Checked in at {new Date(item.check_in_time).toLocaleTimeString()}</Text>
+            ) : null}
           </Pressable>
         ))}
       </View>
@@ -1527,7 +1622,7 @@ function BookingDetailScreen({ route, navigation }: any) {
   );
 
   const cardStyle = {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f0fdf4',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -1790,15 +1885,18 @@ function BookingDetailScreen({ route, navigation }: any) {
             </View>
 
             <View style={styles.infoCardStyle}>
-              <Text style={styles.sectionLabelStyle}>👤 CARESEEKER</Text>
+              <Text style={styles.sectionLabelStyle}>👤 CARESEEKER DETAILS</Text>
               <Text style={styles.nameStyle}>{booking.family_name ?? 'Unknown'}</Text>
+              <Text style={styles.detailRowStyle}>
+                You are providing service to {booking.family_name ?? 'this careseeker'}.
+              </Text>
               {booking.emergency_contact_phone ? (
                 <Pressable
                   onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
                   style={styles.callButtonStyle}
                 >
                   <Text style={styles.callIconStyle}>📞</Text>
-                  <Text style={styles.callTextStyle}>Call Careseeker: {booking.emergency_contact_phone}</Text>
+                  <Text style={styles.callTextStyle}>Call careseeker: {booking.emergency_contact_phone}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -1937,6 +2035,11 @@ function CareseekerDashboardScreen({ navigation }: any) {
       const data = await fetchCareseekerBookings(token);
       setBookings(Array.isArray(data) ? data : []);
     } catch (error) {
+      if (isUnauthorizedError(error)) {
+        await logout();
+        return;
+      }
+
       const message = error instanceof Error ? error.message : 'Unable to load bookings.';
       Alert.alert('Error', message);
       setBookings([]);
@@ -1992,19 +2095,29 @@ function CareseekerDashboardScreen({ navigation }: any) {
                     style={styles.bookingCardMain}
                     onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
                   >
-                    <View style={styles.bookingCardHeader}>
-                      <View style={{ flex: 1, gap: 4 }}>
-                        <Text style={styles.listTitle}>Caregiver: {item.caregiver_name ?? 'Unknown'}</Text>
-                        <Text style={styles.listSubtitle}>{getCareseekerBookingStatusText(item)}</Text>
-                      </View>
+                    <View style={styles.polishedBookingHeader}>
+                      <Text style={styles.polishedBookingTitle}>Caregiver: {item.caregiver_name ?? 'Unknown'}</Text>
                       <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
                         <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
                       </View>
                     </View>
-                    <Text style={styles.listSubtitle}>
-                      {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'}
-                      {item.start_time ? ` at ${item.start_time}` : ''}
-                    </Text>
+
+                    <View style={styles.bookingDetailSection}>
+                      <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
+                      <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(item)}</Text>
+                    </View>
+
+                    <View style={styles.bookingDetailSection}>
+                      <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
+                      <Text style={styles.bookingDetailValue}>{getBookingServiceType(item)}</Text>
+                    </View>
+
+                    <View style={styles.bookingDetailSection}>
+                      <Text style={styles.bookingDetailLabel}>CARESEEKER</Text>
+                      <Text style={styles.bookingDetailValue}>{item.family_name ?? user?.name ?? 'You'}</Text>
+                    </View>
+
+                    <Text style={styles.listSubtitle}>{getCareseekerBookingStatusText(item)}</Text>
                     {item.status === 'in_progress' ? (
                       <View style={styles.inProgressRow}>
                         <PulsingDot />
@@ -2045,7 +2158,7 @@ function CareseekerDashboardScreen({ navigation }: any) {
 }
 
 function CareseekerBookingDetailScreen({ route, navigation }: any) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const bookingId = Number(route.params?.bookingId);
   const [booking, setBooking] = useState<AssignedBooking | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2076,9 +2189,11 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   );
   const statusUpdating = updating;
   const isLocationSharing = Boolean(booking?.status === 'in_progress' && caregiverLocation);
+  const proofImageUrl = resolveProofImageUrl(booking?.proof_image);
+  const isCaregiverViewer = normalizeRole(user?.role) === 'caregiver';
 
   const cardStyle = {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f0fdf4',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -2123,10 +2238,10 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
 
     try {
       const data = await fetchCaregiverLocation(token, booking.id);
-      if (data.is_available && typeof data.latitude === 'number' && typeof data.longitude === 'number') {
+      if (data.is_available && isValidCoordinatePair(data.latitude, data.longitude)) {
         setCaregiverLocation({
-          latitude: data.latitude,
-          longitude: data.longitude,
+          latitude: data.latitude as number,
+          longitude: data.longitude as number,
         });
         setCaregiverUpdatedAt(data.updated_at);
       } else {
@@ -2140,6 +2255,10 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
 
   const submitRating = async () => {
     if (!token || !booking) return;
+    if (!booking.caregiver) {
+      Alert.alert('Error', 'Missing caregiver reference for this booking. Please refresh and try again.');
+      return;
+    }
 
     setSubmittingRating(true);
     try {
@@ -2151,8 +2270,9 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
         },
         body: JSON.stringify({
           booking_id: booking.id,
+          caregiver_id: booking.caregiver,
           rating,
-          comment: reviewText,
+          review_text: reviewText,
         }),
       });
 
@@ -2162,7 +2282,14 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
 
       setRatingSubmitted(true);
       setShowRating(false);
-      Alert.alert('Thank You! ⭐', 'Your review has been submitted successfully.');
+      Alert.alert('Thank You! ⭐', 'Your review has been submitted successfully.', [
+        {
+          text: 'OK',
+          onPress: () => {
+            navigation.navigate('Dashboard');
+          },
+        },
+      ]);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to submit review.';
       Alert.alert('Error', message);
@@ -2459,7 +2586,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                   letterSpacing: 1,
                 }}
               >
-                👤 CARESEEKER
+                👤 CAREGIVER DETAILS
               </Text>
               <Text
                 style={{
@@ -2468,33 +2595,11 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                   color: '#1e3a5f',
                 }}
               >
-                {booking.family_name ?? 'Unknown'}
+                {booking.caregiver_name ?? 'Unknown'}
               </Text>
-
-              {booking.emergency_contact_phone ? (
-                <Pressable
-                  onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8,
-                    backgroundColor: '#dcfce7',
-                    padding: 10,
-                    borderRadius: 8,
-                  }}
-                >
-                  <Text>📞</Text>
-                  <Text
-                    style={{
-                      color: '#166534',
-                      fontWeight: '600',
-                      fontSize: 14,
-                    }}
-                  >
-                    {booking.emergency_contact_phone}
-                  </Text>
-                </Pressable>
-              ) : null}
+              <Text style={{ color: '#475569', fontSize: 14 }}>
+                Your caregiver is {booking.caregiver_name ?? 'assigned caregiver'}.
+              </Text>
             </View>
 
             <View style={cardStyle}>
@@ -2532,7 +2637,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               </View>
             </View>
 
-            {booking.status === 'in_progress' && isLocationSharing ? (
+            {isCaregiverViewer && booking.status === 'in_progress' && isLocationSharing ? (
               <View
                 style={{
                   flexDirection: 'row',
@@ -2564,7 +2669,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               </View>
             ) : null}
 
-            {booking.status === 'pending' ? (
+            {isCaregiverViewer && booking.status === 'pending' ? (
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <Pressable
                   style={{
@@ -2600,7 +2705,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               </View>
             ) : null}
 
-            {booking.status === 'accepted' ? (
+            {isCaregiverViewer && booking.status === 'accepted' ? (
               <>
                 <Pressable
                   style={{
@@ -2625,7 +2730,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               </>
             ) : null}
 
-            {booking.status === 'in_progress' ? (
+            {isCaregiverViewer && booking.status === 'in_progress' ? (
               <>
                 <Pressable
                   style={{
@@ -2653,7 +2758,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                   style={{
                     height: 48,
                     borderRadius: 10,
-                    backgroundColor: '#ffffff',
+                    backgroundColor: '#f0fdf4',
                     borderWidth: 1,
                     borderColor: '#22c55e',
                     justifyContent: 'center',
@@ -2702,17 +2807,17 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               </View>
             ) : null}
 
-            {booking.proof_image ? (
+            {proofImageUrl ? (
               <View style={cardStyle}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', letterSpacing: 1 }}>📷 PROOF</Text>
                 <Pressable onPress={() => setShowFullImage(true)}>
-                  <Image source={{ uri: booking.proof_image }} style={styles.previewImage} resizeMode="cover" />
+                  <Image source={{ uri: proofImageUrl }} style={styles.previewImage} resizeMode="cover" />
                   <Text style={{ color: '#64748b', fontSize: 14, marginTop: 6 }}>Tap to view full screen</Text>
                 </Pressable>
               </View>
             ) : null}
 
-            {booking.status === 'in_progress' ? (
+            {booking.status === 'in_progress' && caregiverLocation ? (
               <View style={styles.liveLocationPanel}>
                 <View style={styles.liveLocationHeader}>
                   <View style={styles.locationSharingDot} />
@@ -2720,35 +2825,25 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                 </View>
                 <Text style={styles.liveLocationUpdatedText}>{caregiverUpdatedLabel}</Text>
 
-                {caregiverLocation && selfLocation ? (
-                  <MapView
-                    ref={(ref) => {
-                      mapRef.current = ref;
-                    }}
-                    style={styles.liveLocationMap}
-                    initialRegion={{
-                      latitude: (caregiverLocation.latitude + selfLocation.latitude) / 2,
-                      longitude: (caregiverLocation.longitude + selfLocation.longitude) / 2,
-                      latitudeDelta: 0.02,
-                      longitudeDelta: 0.02,
-                    }}
-                    scrollEnabled={false}
-                    zoomEnabled={false}
-                    rotateEnabled={false}
-                    pitchEnabled={false}
-                  >
-                    <Marker coordinate={selfLocation} title="You" />
-                    <Marker coordinate={caregiverLocation} title="Your Caregiver" />
-                  </MapView>
-                ) : caregiverLocation ? (
-                  <View style={styles.waitingLocationBox}>
-                    <Text style={styles.mutedText}>Getting your location for map view...</Text>
-                  </View>
-                ) : (
-                  <View style={styles.waitingLocationBox}>
-                    <Text style={styles.mutedText}>Waiting for caregiver location...</Text>
-                  </View>
-                )}
+                <MapView
+                  ref={(ref) => {
+                    mapRef.current = ref;
+                  }}
+                  style={styles.liveLocationMap}
+                  initialRegion={{
+                    latitude: caregiverLocation.latitude,
+                    longitude: caregiverLocation.longitude,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                  }}
+                  scrollEnabled={false}
+                  zoomEnabled={false}
+                  rotateEnabled={false}
+                  pitchEnabled={false}
+                >
+                  {selfLocation ? <Marker coordinate={selfLocation} title="You" /> : null}
+                  <Marker coordinate={caregiverLocation} title="Your Caregiver" />
+                </MapView>
               </View>
             ) : null}
 
@@ -2779,7 +2874,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
         ) : null}
       </ScrollView>
 
-      {showFullImage && booking?.proof_image ? (
+      {showFullImage && proofImageUrl ? (
         <Modal visible={showFullImage} transparent>
           <View
             style={{
@@ -2802,7 +2897,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '700' }}>✕ Close</Text>
             </Pressable>
             <Image
-              source={{ uri: booking.proof_image }}
+              source={{ uri: proofImageUrl }}
               style={{ width: '100%', height: '80%' }}
               resizeMode="contain"
             />
@@ -2812,66 +2907,64 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
 
       {showRating && !ratingSubmitted ? (
         <Modal visible={showRating} transparent animationType="slide">
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: 'rgba(0,0,0,0.5)',
-              justifyContent: 'flex-end',
-            }}
+          <View style={styles.ratingOverlay}
           >
-            <View
-              style={{
-                backgroundColor: '#ffffff',
-                borderTopLeftRadius: 20,
-                borderTopRightRadius: 20,
-                padding: 24,
-                gap: 16,
-              }}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+              style={styles.ratingKeyboardAvoider}
             >
-              <Text style={{ fontSize: 20, fontWeight: '700', color: '#1e3a5f', textAlign: 'center' }}>
-                Rate Your Experience
-              </Text>
-              <Text style={{ color: '#64748b', textAlign: 'center' }}>
-                How was {booking?.caregiver_name ?? 'your caregiver'}?
-              </Text>
+              <View style={styles.ratingSheet}>
+                <ScrollView
+                  contentContainerStyle={styles.ratingSheetContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <Text style={styles.ratingTitle}>Rate Your Experience</Text>
+                  <Text style={styles.ratingSubtitle}>
+                    How was {booking?.caregiver_name ?? 'your caregiver'}?
+                  </Text>
 
-              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Pressable key={star} onPress={() => setRating(star)}>
-                    <Text style={{ fontSize: 36 }}>{star <= rating ? '⭐' : '☆'}</Text>
+                  <View style={styles.ratingStarsRow}>
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Pressable key={star} onPress={() => setRating(star)}>
+                        <Text style={styles.ratingStar}>{star <= rating ? '⭐' : '☆'}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  <TextInput
+                    style={styles.ratingInput}
+                    placeholder="Write a review (optional)"
+                    value={reviewText}
+                    onChangeText={setReviewText}
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
+                    placeholderTextColor="#94a3b8"
+                  />
+
+                  <Pressable
+                    style={[
+                      styles.ratingSubmitButton,
+                      (rating === 0 || submittingRating) && styles.primaryButtonDisabled,
+                    ]}
+                    disabled={rating === 0 || submittingRating}
+                    onPress={submitRating}
+                  >
+                    {submittingRating ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.ratingSubmitText}>Submit Review</Text>
+                    )}
                   </Pressable>
-                ))}
+
+                  <Pressable style={styles.ratingSkipWrap} onPress={() => setShowRating(false)}>
+                    <Text style={styles.ratingSkipText}>Skip for now</Text>
+                  </Pressable>
+                </ScrollView>
               </View>
-
-              <TextInput
-                style={styles.input}
-                placeholder="Write a review (optional)"
-                value={reviewText}
-                onChangeText={setReviewText}
-                multiline
-                numberOfLines={3}
-                placeholderTextColor="#cbd5e1"
-              />
-
-              <Pressable
-                style={{
-                  height: 48,
-                  borderRadius: 10,
-                  backgroundColor: '#22c55e',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  opacity: rating === 0 || submittingRating ? 0.7 : 1,
-                }}
-                disabled={rating === 0 || submittingRating}
-                onPress={submitRating}
-              >
-                {submittingRating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Submit Review</Text>}
-              </Pressable>
-
-              <Pressable style={{ alignSelf: 'center', marginTop: 8 }} onPress={() => setShowRating(false)}>
-                <Text style={{ color: '#22c55e', fontWeight: '600', fontSize: 14 }}>Skip for now</Text>
-              </Pressable>
-            </View>
+            </KeyboardAvoidingView>
           </View>
         </Modal>
       ) : null}
@@ -3192,6 +3285,8 @@ function MainTabs() {
 
           if (route.name === 'Home') {
             iconName = focused ? 'home' : 'home-outline';
+          } else if (route.name === 'Booking Requests') {
+            iconName = focused ? 'clipboard' : 'clipboard-outline';
           } else if (route.name === 'Notifications') {
             iconName = focused ? 'notifications' : 'notifications-outline';
           }
@@ -3201,6 +3296,7 @@ function MainTabs() {
       })}
     >
       <Tab.Screen name="Home" component={CaregiverHomeStackNavigator} />
+      <Tab.Screen name="Booking Requests" component={CaregiverHomeStackNavigator} />
       <Tab.Screen name="Notifications" component={NotificationsScreen} />
     </Tab.Navigator>
   );
@@ -3216,16 +3312,22 @@ function CareseekerTabs() {
         tabBarInactiveTintColor: '#94a3b8',
         tabBarLabelStyle: styles.tabLabel,
         tabBarIcon: ({ focused, color, size }) => {
-          const iconName: React.ComponentProps<typeof Ionicons>['name'] =
-            route.name === 'Home'
-              ? (focused ? 'home' : 'home-outline')
-              : (focused ? 'notifications' : 'notifications-outline');
+          let iconName: React.ComponentProps<typeof Ionicons>['name'] = 'home';
+
+          if (route.name === 'Home') {
+            iconName = focused ? 'home' : 'home-outline';
+          } else if (route.name === 'My Bookings') {
+            iconName = focused ? 'calendar' : 'calendar-outline';
+          } else if (route.name === 'Notifications') {
+            iconName = focused ? 'notifications' : 'notifications-outline';
+          }
 
           return <Ionicons name={iconName} size={size} color={color} />;
         },
       })}
     >
       <CareseekerTab.Screen name="Home" component={CareseekerHomeStackNavigator} />
+      <CareseekerTab.Screen name="My Bookings" component={CareseekerHomeStackNavigator} />
       <CareseekerTab.Screen name="Notifications" component={NotificationsScreen} />
     </CareseekerTab.Navigator>
   );
@@ -3243,7 +3345,10 @@ function RootNavigator() {
   }
 
   return (
-    <RootStack.Navigator screenOptions={{ headerShown: false }}>
+    <RootStack.Navigator
+      screenOptions={{ headerShown: false }}
+      initialRouteName={token ? 'Main' : 'Signup'}
+    >
       {token ? (
         <RootStack.Screen
           name="Main"
@@ -3328,97 +3433,135 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0fdf4',
   },
   authBackground: {
-    justifyContent: 'center',
-    padding: 20,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 24,
     backgroundColor: '#f0fdf4',
     minHeight: '100%',
   },
   logoContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    gap: 12,
+    width: '100%',
+    marginBottom: 20,
   },
   logo: {
-    width: 80,
-    height: 80,
+    width: 96,
+    height: 96,
   },
   divider: {
-    width: 60,
-    height: 3,
+    flex: 1,
+    marginLeft: 14,
+    height: 4,
     backgroundColor: '#22c55e',
-    borderRadius: 2,
+    borderRadius: 999,
   },
   authCard: {
-    backgroundColor: '#f0fdf4',
-    borderRadius: 16,
-    padding: 24,
-    gap: 14,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
   },
   authTitle: {
-    fontSize: 24,
+    fontSize: 30,
     fontWeight: '700',
-    color: '#1e3a5f',
-    textAlign: 'center',
+    color: '#1f2937',
+    lineHeight: 36,
   },
   authSubtitle: {
     fontSize: 14,
-    color: '#64748b',
-    textAlign: 'center',
-    marginBottom: 4,
+    color: '#6b7280',
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  authFieldGroup: {
+    marginBottom: 14,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 6,
+    fontWeight: '500',
   },
   input: {
-    height: 48,
+    height: 50,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
     paddingHorizontal: 14,
-    color: '#1e3a5f',
+    color: '#1f2937',
     backgroundColor: '#f0fdf4',
-    fontSize: 16,
+    fontSize: 14,
+  },
+  inputFocused: {
+    borderColor: '#22c55e',
   },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
     backgroundColor: '#f0fdf4',
-    paddingRight: 12,
+    paddingRight: 10,
+    height: 50,
   },
   passwordInput: {
     flex: 1,
-    height: 48,
+    height: 50,
     paddingHorizontal: 14,
-    color: '#1e3a5f',
-    fontSize: 16,
+    color: '#1f2937',
+    fontSize: 14,
   },
   eyeIcon: {
     padding: 8,
   },
   eyeIconText: {
-    fontSize: 18,
+    fontSize: 16,
+  },
+  forgotPasswordWrap: {
+    alignSelf: 'flex-start',
+    marginTop: -4,
+    marginBottom: 18,
   },
   forgotPassword: {
     color: '#22c55e',
     fontWeight: '600',
     fontSize: 14,
-    textAlign: 'right',
   },
   pickerContainer: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
     backgroundColor: '#f0fdf4',
     overflow: 'hidden',
+    height: 50,
   },
   picker: {
-    height: 48,
-    color: '#1e3a5f',
+    height: 50,
+    color: '#1f2937',
+  },
+  authSubmitButton: {
+    backgroundColor: '#22c55e',
+    height: 50,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  authSwitchWrap: {
+    marginTop: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  authSwitchText: {
+    fontSize: 14,
+    color: '#4b5563',
+    textAlign: 'center',
+  },
+  authSwitchAction: {
+    color: '#16a34a',
+    fontWeight: '600',
   },
   primaryButton: {
     backgroundColor: '#22c55e',
@@ -3666,22 +3809,73 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   bookingCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 10,
-    padding: 10,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 16,
+    padding: 12,
     borderWidth: 1,
-    borderColor: '#dcfce7',
-    marginBottom: 8,
+    borderColor: '#bbf7d0',
+    marginBottom: 10,
     gap: 10,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 2,
   },
   bookingCardMain: {
-    gap: 6,
+    gap: 10,
   },
-  bookingCardHeader: {
+  polishedBookingCard: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    padding: 14,
+    marginBottom: 10,
+    gap: 10,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  polishedBookingHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
+  },
+  polishedBookingTitle: {
+    flex: 1,
+    fontWeight: '700',
+    fontSize: 15,
+    color: '#1e3a5f',
+  },
+  bookingDetailSection: {
+    backgroundColor: '#ecfdf3',
+    borderWidth: 1,
+    borderColor: '#dcfce7',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  bookingDetailLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.7,
+    color: '#166534',
+  },
+  bookingDetailValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1e3a5f',
+  },
+  bookingCheckInText: {
+    color: '#15803d',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
   },
   statusBadge: {
     borderRadius: 999,
@@ -3706,7 +3900,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   headerCardStyle: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f0fdf4',
     borderRadius: 12,
     padding: 16,
     flexDirection: 'row',
@@ -3720,7 +3914,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   infoCardStyle: {
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f0fdf4',
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
@@ -3788,36 +3982,55 @@ const styles = StyleSheet.create({
   },
   sosContainer: {
     width: '100%',
-    gap: 6,
+    gap: 8,
     marginTop: 2,
   },
   sosPulseWrap: {
     width: '100%',
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#fecaca',
+    padding: 2,
   },
   sosButton: {
     width: '100%',
-    borderRadius: 8,
-    backgroundColor: '#DC2626',
-    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#b91c1c',
+    paddingVertical: 14,
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#7f1d1d',
+    shadowColor: '#b91c1c',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 4,
   },
   sosButtonPressed: {
-    opacity: 0.9,
+    opacity: 0.92,
   },
   sosButtonDisabled: {
     opacity: 0.7,
   },
+  sosButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
   sosButtonText: {
     color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.3,
     textAlign: 'center',
   },
   sosSubtitle: {
     fontSize: 12,
-    color: '#64748b',
+    color: '#7f1d1d',
+    fontWeight: '600',
     textAlign: 'center',
   },
   listTitle: {
@@ -3914,6 +4127,77 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: 12,
     backgroundColor: '#f0fdf4',
+  },
+  ratingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  ratingKeyboardAvoider: {
+    width: '100%',
+  },
+  ratingSheet: {
+    backgroundColor: '#f0fdf4',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+  },
+  ratingSheetContent: {
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 28,
+    gap: 14,
+  },
+  ratingTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1e3a5f',
+    textAlign: 'center',
+  },
+  ratingSubtitle: {
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  ratingStarsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  ratingStar: {
+    fontSize: 36,
+  },
+  ratingInput: {
+    minHeight: 120,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: '#1f2937',
+    backgroundColor: '#f0fdf4',
+  },
+  ratingSubmitButton: {
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: '#22c55e',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  ratingSubmitText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  ratingSkipWrap: {
+    alignSelf: 'center',
+    marginTop: 8,
+  },
+  ratingSkipText: {
+    color: '#22c55e',
+    fontWeight: '600',
+    fontSize: 14,
   },
   videoPlaceholder: {
     height: 180,

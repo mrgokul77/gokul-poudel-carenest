@@ -169,6 +169,10 @@ const CareseekerBookings = () => {
 
   const handleSubmitRating = async () => {
     if (!ratingModalBooking) return;
+    if (!ratingModalBooking.caregiver) {
+      alert("Missing caregiver reference for this booking. Please refresh and try again.");
+      return;
+    }
     if (ratingValue < 1 || ratingValue > 5) {
       alert("Rating must be between 1 and 5 stars.");
       return;
@@ -177,8 +181,9 @@ const CareseekerBookings = () => {
     try {
       await reviewsApi.post("", {
         booking_id: ratingModalBooking.id,
+        caregiver_id: ratingModalBooking.caregiver,
         rating: ratingValue,
-        comment: ratingComment.trim() || undefined,
+        review_text: ratingComment.trim() || "",
       });
       // Refresh bookings to get updated review flags
       await fetchBookings();

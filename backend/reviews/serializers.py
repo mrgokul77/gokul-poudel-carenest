@@ -8,6 +8,8 @@ class ReviewSerializer(serializers.ModelSerializer):
     """Create/read reviews with strict 1–5 rating."""
 
     booking_id = serializers.IntegerField(write_only=True)
+    caregiver_id = serializers.IntegerField(write_only=True)
+    review_text = serializers.CharField(write_only=True, required=False, allow_blank=True)
     careseeker_name = serializers.CharField(source="careseeker.username", read_only=True)
     careseeker_profile_image = serializers.SerializerMethodField()
     service_types = serializers.SerializerMethodField()
@@ -17,12 +19,14 @@ class ReviewSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "booking_id",
+            "caregiver_id",
             "caregiver",
             "careseeker",
             "careseeker_name",
             "careseeker_profile_image",
             "service_types",
             "rating",
+            "review_text",
             "comment",
             "created_at",
         ]
@@ -56,6 +60,14 @@ class ReviewSerializer(serializers.ModelSerializer):
         self.context["booking"] = booking
         return value
 
+    def validate_caregiver_id(self, value):
+        booking = self.context.get("booking")
+        if not booking:
+            raise serializers.ValidationError("booking_id is required before caregiver_id validation.")
+        if booking.caregiver_id != value:
+            raise serializers.ValidationError("caregiver_id does not match the booking caregiver.")
+        return value
+
     def create(self, validated_data):
         booking = self.context["booking"]
         request = self.context.get("request")
@@ -75,7 +87,8 @@ class ReviewSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Review already submitted for this booking.")
 
         rating = validated_data["rating"]
-        comment = validated_data.get("comment", "").strip()
+        review_text = validated_data.get("review_text", "")
+        comment = validated_data.get("comment", review_text).strip()
 
         review = Review.objects.create(
             booking=booking,

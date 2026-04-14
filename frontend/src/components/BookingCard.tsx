@@ -4,6 +4,7 @@ import { resolveBackendMediaUrl } from "../utils/media";
 
 export interface Booking {
   id: number;
+  caregiver?: number;
   family_name?: string;
   caregiver_name?: string;
   caregiver_profile_image?: string | null;
