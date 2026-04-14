@@ -151,10 +151,13 @@ const FindCaregiver = () => {
   });
 
   const [submitting, setSubmitting] = useState(false);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [availabilityStatus, setAvailabilityStatus] = useState<{ is_available?: boolean; message?: string } | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [dateError, setDateError] = useState("");
   const [timeError, setTimeError] = useState("");
+  const [bookingError, setBookingError] = useState("");
   const [imageErrors, setImageErrors] = useState<Record<number, boolean>>({});
   const [addressSuggestions, setAddressSuggestions] = useState<NominatimSearchHit[]>(
     [],
@@ -261,7 +264,7 @@ const FindCaregiver = () => {
     return bookings.some(
       (b) =>
         b.caregiver === caregiverId &&
-        ["pending", "accepted", "completion_requested"].includes(
+        ["pending", "accepted", "completion_requested", "awaiting_confirmation"].includes(
           b.booking_status || b.status,
         ),
     );
@@ -306,6 +309,7 @@ const FindCaregiver = () => {
     setError("");
     setDateError("");
     setTimeError("");
+    setBookingError("");
     setMessage("");
     setAddressSuggestions([]);
     setAddressSearchNoResults(false);
@@ -494,6 +498,7 @@ const FindCaregiver = () => {
 
     setSubmitting(true);
     setError("");
+    setBookingError("");
     setMessage("");
     try {
       const body: Record<string, unknown> = {
@@ -552,6 +557,8 @@ const FindCaregiver = () => {
         setError(
           "You have already requested this caregiver. Please wait for response.",
         );
+      } else if (errorMsg.includes("at least 1 hour in advance")) {
+        setBookingError(errorMsg);
       } else if (ax.response?.data?.date) {
         setDateError(ax.response.data.date[0] || "Invalid date");
       } else if (ax.response?.data?.start_time) {
@@ -564,12 +571,70 @@ const FindCaregiver = () => {
     }
   };
 
+  const checkAvailability = useCallback(
+    async (
+      caregiverId?: number | null,
+      date?: string,
+      startTime?: string,
+      duration?: number,
+    ) => {
+      if (!caregiverId || !date || !startTime || !duration) {
+        setAvailabilityStatus(null);
+        return;
+      }
+
+      setCheckingAvailability(true);
+      setAvailabilityStatus(null);
+
+      try {
+        const response = await bookingsApi.get("check-availability/", {
+          params: {
+            caregiver_id: caregiverId,
+            date,
+            start_time: startTime,
+            duration_hours: duration,
+          },
+        });
+        setAvailabilityStatus(response.data);
+      } catch {
+        setAvailabilityStatus(null);
+      } finally {
+        setCheckingAvailability(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!selectedCaregiver?.user_id || !bookingForm.date || !bookingForm.start_time || !bookingForm.duration_hours) {
+      setAvailabilityStatus(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      checkAvailability(
+        selectedCaregiver.user_id,
+        bookingForm.date,
+        bookingForm.start_time,
+        bookingForm.duration_hours,
+      );
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    selectedCaregiver?.user_id,
+    bookingForm.date,
+    bookingForm.start_time,
+    bookingForm.duration_hours,
+    checkAvailability,
+  ]);
+
   const getMinDate = () => {
     const d = new Date();
     return d.toISOString().split("T")[0];
   };
 
-  /** Hourly slots 08:00–20:00. For today, only slots >= currentTime + 3 hours. */
+  /** Hourly slots 08:00–20:00. For today, only slots >= currentTime + 1 hour (rounded up to next slot). */
   const getAvailableTimeSlots = (date?: string): { value: string; label: string }[] => {
     const allSlots: { value: string; label: string }[] = [];
     for (let h = 8; h <= 20; h++) {
@@ -585,7 +650,7 @@ const FindCaregiver = () => {
     }
 
     const now = new Date();
-    const minTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const minTime = new Date(now.getTime() + 1 * 60 * 60 * 1000);
     const nextSlot = new Date(minTime);
     nextSlot.setMinutes(0, 0, 0);
     if (minTime.getMinutes() > 0 || minTime.getSeconds() > 0) {
@@ -1207,6 +1272,7 @@ const FindCaregiver = () => {
                           return next;
                         });
                         setDateError("");
+                        setBookingError("");
                       }}
                       className={`w-full box-border bg-green-50 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500 ${
                         dateError ? "border-red-500" : "border-gray-300"
@@ -1232,6 +1298,7 @@ const FindCaregiver = () => {
                           start_time: e.target.value,
                         }));
                         setTimeError("");
+                        setBookingError("");
                       }}
                       className={`w-full box-border bg-green-50 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-0 focus:border-green-500 ${
                         timeError ? "border-red-500" : "border-gray-300"
@@ -1251,6 +1318,9 @@ const FindCaregiver = () => {
                     )}
                     {timeError && (
                       <p className="text-xs text-red-600 mt-1">{timeError}</p>
+                    )}
+                    {bookingError && (
+                      <p className="text-xs text-red-600 mt-1">{bookingError}</p>
                     )}
                   </div>
                   <div>
@@ -1275,6 +1345,24 @@ const FindCaregiver = () => {
                     </select>
                   </div>
                 </div>
+
+                {checkingAvailability ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mt-2">
+                    <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                    Checking caregiver availability...
+                  </div>
+                ) : availabilityStatus?.is_available ? (
+                  <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-2 rounded-lg mt-2 border border-green-200">
+                    <span>✓</span>
+                    Caregiver is available at this time
+                  </div>
+                ) : availabilityStatus?.is_available === false ? (
+                  <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg mt-2 border border-red-200">
+                    <span>⚠</span>
+                    {availabilityStatus?.message ??
+                      "Caregiver is not available at this time. Please choose a different time slot."}
+                  </div>
+                ) : null}
               </div>
 
               {/* Emergency Contact Details & Service Address */}
@@ -1405,10 +1493,16 @@ const FindCaregiver = () => {
               </button>
               <button
                 onClick={submitBooking}
-                disabled={submitting}
-                className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
+                disabled={submitting || checkingAvailability || availabilityStatus?.is_available === false}
+                className={`px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium ${
+                  availabilityStatus?.is_available === false ? "opacity-50 cursor-not-allowed" : ""
+                }`}
               >
-                {submitting ? "Submitting..." : "Submit Request"}
+                {submitting
+                  ? "Submitting..."
+                  : availabilityStatus?.is_available === false
+                    ? "Caregiver Unavailable"
+                    : "Submit Request"}
               </button>
             </div>
           </div>

@@ -42,6 +42,7 @@ const BOOKING_STATUS_LABEL: Record<string, string> = {
   pending: "Pending",
   accepted: "Accepted",
   completion_requested: "Completion Req.",
+  awaiting_confirmation: "Completion Req.",
   completed: "Completed",
   rejected: "Cancelled",
   cancelled: "Cancelled",
@@ -59,6 +60,7 @@ function bookingBadgeClass(status: string): string {
     case "cancelled":
       return "bg-red-100 text-red-800";
     case "completion_requested":
+    case "awaiting_confirmation":
       return "bg-amber-100 text-amber-800";
     case "expired":
       return "bg-gray-100 text-gray-700";

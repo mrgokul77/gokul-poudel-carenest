@@ -162,7 +162,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        """Ensure requested services are offered, validate hourly slots, and enforce 3-hour lead time"""
+        """Ensure requested services are offered, validate hourly slots, and enforce 1-hour lead time."""
         from django.utils import timezone
         from datetime import datetime, timedelta
 
@@ -179,12 +179,15 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             today = timezone.localdate()
             if date == today:
                 now = timezone.localtime()
-                min_booking_time = now + timedelta(hours=3)
+                min_booking_time = now + timedelta(hours=1)
+                min_slot_time = min_booking_time.replace(minute=0, second=0, microsecond=0)
+                if min_booking_time.minute > 0 or min_booking_time.second > 0 or min_booking_time.microsecond > 0:
+                    min_slot_time += timedelta(hours=1)
                 start_dt = timezone.make_aware(
                     datetime.combine(date, start_time),
                     timezone.get_current_timezone(),
                 )
-                if start_dt < min_booking_time:
+                if start_dt < min_slot_time:
                     raise serializers.ValidationError({
                         "start_time": ["Invalid time slot. Please select a valid available slot."]
                     })

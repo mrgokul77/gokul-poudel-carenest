@@ -7,6 +7,7 @@ import { Wallet, Calendar, AlertCircle, ChevronLeft, ChevronRight } from "lucide
 const EARNINGS_STATUSES = new Set([
   "accepted",
   "completion_requested",
+  "awaiting_confirmation",
   "completed",
 ]);
 

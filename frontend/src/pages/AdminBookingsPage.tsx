@@ -29,13 +29,14 @@ const STATUS_LABEL: Record<string, string> = {
   pending: "Pending",
   accepted: "Active",
   completion_requested: "Active",
+  awaiting_confirmation: "Active",
   completed: "Completed",
   rejected: "Cancelled",
   expired: "Expired",
 };
 
 function isActiveStatus(status: string): boolean {
-  return status === "pending" || status === "accepted" || status === "completion_requested";
+  return status === "pending" || status === "accepted" || status === "completion_requested" || status === "awaiting_confirmation";
 }
 
 function bookingStatusClass(status: string): string {
@@ -121,7 +122,7 @@ function BookingDetailsModal({ bookingId, onClose, onSaved }: BookingDetailsModa
   };
 
   const status = booking?.status ?? "pending";
-  const canCancel = ["pending", "accepted", "completion_requested"].includes(status);
+  const canCancel = ["pending", "accepted", "completion_requested", "awaiting_confirmation"].includes(status);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

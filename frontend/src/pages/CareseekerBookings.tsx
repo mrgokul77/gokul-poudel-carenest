@@ -236,6 +236,7 @@ const CareseekerBookings = () => {
                     { value: "pending", label: "Pending" },
                     { value: "accepted", label: "Accepted" },
                     { value: "completion_requested", label: "Awaiting Confirmation" },
+                    { value: "awaiting_confirmation", label: "Awaiting Confirmation" },
                     { value: "completed", label: "Completed" },
                     { value: "rejected", label: "Declined" },
                     { value: "expired", label: "Expired" },

@@ -51,6 +51,7 @@ const bookingStatusStyles: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700",
   accepted: "bg-blue-100 text-blue-700",
   completion_requested: "bg-amber-100 text-amber-700",
+  awaiting_confirmation: "bg-amber-100 text-amber-700",
   completed: "bg-gray-200 text-gray-700",
   rejected: "bg-red-100 text-red-700",
   expired: "bg-gray-200 text-gray-600",
@@ -59,6 +60,7 @@ const bookingStatusLabels: Record<string, string> = {
   pending: "Pending",
   accepted: "Accepted",
   completion_requested: "Awaiting Confirmation",
+  awaiting_confirmation: "Awaiting Confirmation",
   completed: "Completed",
   rejected: "Declined",
   expired: "Expired",
@@ -323,7 +325,7 @@ const BookingCard: React.FC<BookingCardProps> = ({
           {/* Right side: Other actions */}
           <div className="flex gap-3">
             {/* COMPLETION_REQUESTED: Confirm Completion */}
-            {(status === "completion_requested" || booking.status === "completion_requested") && (
+            {(status === "completion_requested" || status === "awaiting_confirmation" || booking.status === "completion_requested" || booking.status === "awaiting_confirmation") && (
               <button
                 onClick={() => onConfirmCompletion && onConfirmCompletion(booking.id)}
                 className="px-5 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm transition-colors"

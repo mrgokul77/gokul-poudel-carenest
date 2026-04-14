@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker } from 'react-native-maps';
@@ -32,7 +33,39 @@ const AUTH_TOKEN_KEY = 'carenest_auth_token';
 const AUTH_USER_KEY = 'carenest_auth_user';
 const JWT_TOKEN_KEY = 'jwt_token';
 const USER_ROLE_KEY = 'user_role';
-const API_TIMEOUT_MS = 10000; // 10 seconds
+const API_TIMEOUT_MS = 30000;
+
+const BOOKING_STATUS_LABELS: Record<string, string> = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  in_progress: 'In Progress',
+  completion_requested: 'Awaiting Confirmation',
+  awaiting_confirmation: 'Awaiting Confirmation',
+  completed: 'Completed',
+  rejected: 'Declined',
+  expired: 'Expired',
+};
+
+const BOOKING_STATUS_COLORS: Record<string, string> = {
+  pending: '#f59e0b',
+  accepted: '#0f766e',
+  in_progress: '#22c55e',
+  completion_requested: '#f59e0b',
+  awaiting_confirmation: '#f59e0b',
+  completed: '#64748b',
+  rejected: '#dc2626',
+  expired: '#94a3b8',
+};
+
+function getStatusLabel(status?: string | null) {
+  const normalizedStatus = status ?? 'pending';
+  return BOOKING_STATUS_LABELS[normalizedStatus] ?? normalizedStatus.replace(/_/g, ' ');
+}
+
+function getStatusColor(status?: string | null) {
+  const normalizedStatus = status ?? 'pending';
+  return BOOKING_STATUS_COLORS[normalizedStatus] ?? '#64748b';
+}
 
 /**
  * Wrapper for fetch with timeout handling and logging
@@ -346,26 +379,6 @@ async function fetchUserProfile(token: string) {
   }
 }
 
-function getStatusLabel(status: string) {
-  const value = (status || '').toLowerCase();
-  if (value === 'accepted') return 'Accepted';
-  if (value === 'rejected') return 'Rejected';
-  if (value === 'in_progress') return 'In Progress';
-  if (value === 'completed') return 'Completed';
-  if (value === 'pending') return 'Pending';
-  return status || 'Unknown';
-}
-
-function getStatusColor(status: string) {
-  const value = (status || '').toLowerCase();
-  if (value === 'completed') return '#16a34a';
-  if (value === 'in_progress') return '#2563eb';
-  if (value === 'accepted') return '#0f766e';
-  if (value === 'rejected') return '#dc2626';
-  if (value === 'pending') return '#f59e0b';
-  return '#64748b';
-}
-
 function getBookingStartDateTime(booking: AssignedBooking) {
   if (!booking.date || !booking.start_time) {
     return null;
@@ -556,7 +569,7 @@ async function fetchCareseekerBooking(token: string, bookingId: number): Promise
 async function updateBookingStatus(
   token: string,
   bookingId: number,
-  nextStatus: 'accepted' | 'rejected' | 'in_progress' | 'completed',
+  nextStatus: 'accepted' | 'rejected' | 'in_progress' | 'awaiting_confirmation' | 'completed',
   includeTimestamp: boolean = true,
 ) {
   const url = `${API_BASE_URL}/bookings/${bookingId}/update-status/`;
@@ -649,35 +662,38 @@ async function registerDevicePushToken(token: string, role?: string) {
     return;
   }
 
-  let pushToken = '';
-
   try {
-    const expoToken = await Notifications.getExpoPushTokenAsync();
-    pushToken = expoToken.data;
-  } catch {
-    pushToken = '';
-  }
+    const { status } = await Notifications.getPermissionsAsync();
 
-  if (!pushToken) {
-    try {
-      const nativeToken = await Notifications.getDevicePushTokenAsync();
-      pushToken = typeof nativeToken?.data === 'string' ? nativeToken.data : '';
-    } catch {
-      return;
+    if (status !== 'granted') {
+      await Notifications.requestPermissionsAsync();
     }
-  }
 
-  const response = await fetchWithTimeout(`${API_BASE_URL}/user/save-push-token/`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ push_token: pushToken }),
-  });
+    const configuredProjectId =
+      Constants.expoConfig?.extra?.eas?.projectId || '863b16bc-e7f8-4f76-ba42-efc1e8254895';
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: configuredProjectId,
+    });
+    const pushToken = tokenData.data;
 
-  if (!response.ok) {
-    throw new Error(await parseError(response));
+    console.log('[PUSH] Token:', pushToken);
+
+    if (pushToken) {
+      await fetchWithTimeout(
+        `${API_BASE_URL}/user/save-push-token/`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ push_token: pushToken }),
+        }
+      );
+      console.log('[PUSH] Saved successfully');
+    }
+  } catch (error) {
+    console.log('[PUSH] Error:', error);
   }
 }
 
@@ -1155,17 +1171,19 @@ function OTPVerificationScreen({ route, navigation }: any) {
 function CaregiverDashboardScreen({ navigation }: any) {
   const { logout, user, token } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [bookings, setBookings] = useState<AssignedBooking[]>([]);
 
   const loadBookings = useCallback(async () => {
     if (!token) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await fetchAssignedBookings(token);
       setBookings(Array.isArray(data) ? data : []);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load assigned bookings.';
-      Alert.alert('Error', message);
+      const message = error instanceof Error ? error.message : 'Unable to load bookings';
+      setLoadError(message);
       setBookings([]);
     } finally {
       setLoading(false);
@@ -1186,85 +1204,300 @@ function CaregiverDashboardScreen({ navigation }: any) {
     return () => clearInterval(intervalId);
   }, [loadBookings]);
 
-  const pendingBookings = bookings.filter((booking) => booking.status === 'pending');
-  const upcomingBookings = bookings.filter((booking) => booking.status === 'accepted');
-  const activeBookings = bookings.filter((booking) => booking.status === 'in_progress');
-  const completedBookings = bookings.filter((booking) => booking.status === 'completed');
+  const sections = [
+    {
+      key: 'pending',
+      title: 'Pending',
+      color: '#f59e0b',
+      items: bookings.filter((booking) => booking.status === 'pending'),
+    },
+    {
+      key: 'accepted',
+      title: 'Accepted',
+      color: '#0f766e',
+      items: bookings.filter((booking) => booking.status === 'accepted'),
+    },
+    {
+      key: 'in_progress',
+      title: 'In Progress',
+      color: '#22c55e',
+      items: bookings.filter((booking) => booking.status === 'in_progress'),
+    },
+    {
+      key: 'awaiting_confirmation',
+      title: 'Awaiting Confirmation',
+      color: '#f59e0b',
+      items: bookings.filter(
+        (booking) => booking.status === 'awaiting_confirmation' || booking.status === 'completion_requested',
+      ),
+    },
+    {
+      key: 'completed',
+      title: 'Completed',
+      color: '#64748b',
+      items: bookings.filter((booking) => booking.status === 'completed'),
+    },
+  ];
 
-  const renderBookingCard = (item: AssignedBooking) => (
-    <Pressable
-      key={item.id}
-      style={styles.bookingCard}
-      onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
+  const loadingState = (
+    <View
+      style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 12,
+        paddingTop: 60,
+        backgroundColor: '#f0fdf4',
+      }}
     >
-      <View style={styles.bookingCardHeader}>
-        <Text style={styles.listTitle}>Careseeker: {item.family_name ?? 'Unknown'}</Text>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-          <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
-        </View>
-      </View>
-      <Text style={styles.listSubtitle}>
-        {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'}
-        {item.start_time ? ` at ${item.start_time}` : ''}
+      <ActivityIndicator size="large" color="#22c55e" />
+      <Text style={{ color: '#64748b', fontSize: 14, textAlign: 'center' }}>Loading bookings...</Text>
+      <Text
+        style={{
+          color: '#94a3b8',
+          fontSize: 12,
+          textAlign: 'center',
+          paddingHorizontal: 32,
+        }}
+      >
+        This may take a moment if server is starting up
       </Text>
-      {item.check_in_time ? (
-        <Text style={[styles.listSubtitle, { color: '#16a34a' }]}>
-          ✓ Checked in: {new Date(item.check_in_time).toLocaleString()}
-        </Text>
-      ) : null}
-      {item.check_out_time ? (
-        <Text style={styles.listSubtitle}>
-          ✓ Checked out: {new Date(item.check_out_time).toLocaleString()}
-        </Text>
-      ) : null}
-    </Pressable>
+    </View>
   );
 
-  const renderSection = (title: string, items: AssignedBooking[]) => {
-    if (items.length === 0) {
-      return null;
-    }
+  const errorState = (
+    <View
+      style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 12,
+        paddingTop: 60,
+        backgroundColor: '#f0fdf4',
+      }}
+    >
+      <Text style={{ fontSize: 32 }}>⚠️</Text>
+      <Text
+        style={{
+          color: '#1e3a5f',
+          fontSize: 16,
+          fontWeight: '700',
+          textAlign: 'center',
+        }}
+      >
+        Could not load bookings
+      </Text>
+      <Text
+        style={{
+          color: '#64748b',
+          fontSize: 13,
+          textAlign: 'center',
+          paddingHorizontal: 32,
+        }}
+      >
+        {loadError}
+      </Text>
+      <Pressable
+        onPress={loadBookings}
+        style={{
+          backgroundColor: '#22c55e',
+          paddingHorizontal: 24,
+          paddingVertical: 10,
+          borderRadius: 8,
+          marginTop: 8,
+        }}
+      >
+        <Text
+          style={{
+            color: '#ffffff',
+            fontWeight: '700',
+          }}
+        >
+          Try Again
+        </Text>
+      </Pressable>
+    </View>
+  );
 
+  if (loading && bookings.length === 0 && !loadError) {
     return (
-      <View style={styles.dashboardSection}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        {items.map(renderBookingCard)}
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        {loadingState}
+      </SafeAreaView>
     );
-  };
+  }
+
+  if (loadError && bookings.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        {errorState}
+      </SafeAreaView>
+    );
+  }
+
+  const renderSection = (section: {
+    key: string;
+    title: string;
+    color: string;
+    items: AssignedBooking[];
+  }) => (
+    <View key={section.key}>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingHorizontal: 4,
+          paddingVertical: 8,
+          marginTop: 8,
+        }}
+      >
+        <View
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 999,
+            backgroundColor: section.color,
+          }}
+        />
+        <Text
+          style={{
+            fontSize: 13,
+            fontWeight: '700',
+            color: '#1e3a5f',
+            letterSpacing: 0.5,
+          }}
+        >
+          {section.title} ({section.items.length})
+        </Text>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        {section.items.map((item) => (
+          <Pressable
+            key={item.id}
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: 12,
+              padding: 14,
+              marginBottom: 8,
+              borderWidth: 1,
+              borderColor: '#dcfce7',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.05,
+              shadowRadius: 4,
+              elevation: 1,
+            }}
+            onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+              }}
+            >
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: '#1e3a5f' }}>
+                  {item.family_name ?? 'Careseeker'}
+                </Text>
+                <Text style={{ fontSize: 13, color: '#64748b' }}>
+                  📅 {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'} at {item.start_time ?? ''}
+                </Text>
+                <Text style={{ fontSize: 13, color: '#64748b' }}>
+                  ⏱ {item.duration_hours ?? 'N/A'} hours
+                </Text>
+                {item.check_in_time ? (
+                  <Text style={{ fontSize: 12, color: '#16a34a' }}>
+                    ✓ Checked in: {new Date(item.check_in_time).toLocaleTimeString()}
+                  </Text>
+                ) : null}
+              </View>
+              <View
+                style={{
+                  backgroundColor: getStatusColor(item.status),
+                  borderRadius: 999,
+                  paddingHorizontal: 10,
+                  paddingVertical: 4,
+                }}
+              >
+                <Text
+                  style={{
+                    color: '#ffffff',
+                    fontSize: 11,
+                    fontWeight: '700',
+                  }}
+                >
+                  {getStatusLabel(item.status)}
+                </Text>
+              </View>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.homeHeader}>
-        <Image
-          source={require('./assets/carenest-logo.png')}
-          style={styles.homeHeaderLogo}
-          resizeMode="contain"
-        />
-        <Pressable style={styles.headerLogoutButton} onPress={logout}>
-          <Ionicons name="log-out-outline" size={24} color="#1e3a5f" />
-        </Pressable>
-      </View>
+      <FlatList
+        data={bookings}
+        keyExtractor={(item) => String(item.id)}
+        refreshing={loading}
+        onRefresh={loadBookings}
+        renderItem={() => null}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          backgroundColor: '#f0fdf4',
+          paddingHorizontal: 16,
+          paddingBottom: 24,
+          flexGrow: 1,
+        }}
+        ListHeaderComponent={
+          <View style={{ backgroundColor: '#f0fdf4', paddingTop: 8, paddingBottom: 16 }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <View>
+                <Text
+                  style={{
+                    fontSize: 22,
+                    fontWeight: '700',
+                    color: '#1e3a5f',
+                  }}
+                >
+                  Hello, {user?.name ?? 'Caregiver'} 👋
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: '#64748b',
+                    marginTop: 2,
+                  }}
+                >
+                  Your assigned bookings
+                </Text>
+              </View>
+              <Pressable onPress={logout}>
+                <Ionicons name="log-out-outline" size={24} color="#1e3a5f" />
+              </Pressable>
+            </View>
 
-      <ScrollView contentContainerStyle={styles.screenContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.homeInfoCard}>
-          <Text style={styles.homeGreeting}>Hello, {user?.name ?? 'Caregiver'} 👋</Text>
-          <Text style={styles.homeSubtitle}>Assigned bookings dashboard</Text>
-        </View>
+            {sections.map(renderSection)}
 
-        {loading ? (
-          <ActivityIndicator size="large" color="#22c55e" />
-        ) : (
-          <View style={{ gap: 12 }}>
-            {renderSection(`🔴 New Requests (${pendingBookings.length})`, pendingBookings)}
-            {renderSection(`🟡 Upcoming (${upcomingBookings.length})`, upcomingBookings)}
-            {renderSection(`🟢 Active (${activeBookings.length})`, activeBookings)}
-            {renderSection(`✓ Completed (${completedBookings.length})`, completedBookings)}
-
-            {bookings.length === 0 ? <Text style={styles.mutedText}>No assigned bookings found.</Text> : null}
+            {bookings.length === 0 ? (
+              <Text style={{ color: '#64748b', fontSize: 14, marginTop: 12 }}>
+                No assigned bookings found.
+              </Text>
+            ) : null}
           </View>
-        )}
-      </ScrollView>
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -1274,6 +1507,7 @@ function BookingDetailScreen({ route, navigation }: any) {
   const bookingId = Number(route.params?.bookingId);
   const [booking, setBooking] = useState<AssignedBooking | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isLocationSharing, setIsLocationSharing] = useState(false);
@@ -1291,6 +1525,21 @@ function BookingDetailScreen({ route, navigation }: any) {
       booking.duration_hours &&
       now >= new Date(new Date(booking.check_in_time).getTime() + booking.duration_hours * 60 * 60 * 1000),
   );
+
+  const cardStyle = {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#dcfce7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+    gap: 8,
+  } as const;
 
   const stopLocationSharing = useCallback(() => {
     if (locationWatcherRef.current) {
@@ -1369,6 +1618,7 @@ function BookingDetailScreen({ route, navigation }: any) {
     if (!token || !bookingId) return;
 
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await fetchAssignedBookings(token);
       const found = (Array.isArray(data) ? data : []).find((item: AssignedBooking) => item.id === bookingId);
@@ -1379,8 +1629,8 @@ function BookingDetailScreen({ route, navigation }: any) {
       }
       setBooking(found);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load booking.';
-      Alert.alert('Error', message);
+      const message = error instanceof Error ? error.message : 'Unable to load booking';
+      setLoadError(message);
     } finally {
       setLoading(false);
     }
@@ -1420,10 +1670,12 @@ function BookingDetailScreen({ route, navigation }: any) {
     };
   }, [stopLocationSharing]);
 
-  const handleStatusUpdate = async (nextStatus: 'accepted' | 'rejected' | 'in_progress' | 'completed') => {
+  const handleStatusUpdate = async (
+    nextStatus: 'accepted' | 'rejected' | 'in_progress' | 'awaiting_confirmation' | 'completed',
+  ) => {
     if (!token || !booking) return;
 
-    if (nextStatus === 'completed' && !canCheckOutByDuration) {
+    if ((nextStatus === 'completed' || nextStatus === 'awaiting_confirmation') && !canCheckOutByDuration) {
       Alert.alert('Too early', 'You cannot check out before the service duration is complete');
       return;
     }
@@ -1444,7 +1696,7 @@ function BookingDetailScreen({ route, navigation }: any) {
         token,
         booking.id,
         nextStatus,
-        nextStatus === 'in_progress' || nextStatus === 'completed',
+        nextStatus === 'in_progress' || nextStatus === 'completed' || nextStatus === 'awaiting_confirmation',
       );
       setBooking(updated);
 
@@ -1455,6 +1707,9 @@ function BookingDetailScreen({ route, navigation }: any) {
       } else if (nextStatus === 'in_progress') {
         await startLocationSharing(updated.id, permissionGrantedForCheckIn);
         Alert.alert('Success', 'Checked in successfully.');
+      } else if (nextStatus === 'awaiting_confirmation') {
+        stopLocationSharing();
+        Alert.alert('Success', 'Service marked complete and sent for confirmation.');
       } else {
         stopLocationSharing();
         Alert.alert('Success', 'Checked out successfully.');
@@ -1519,69 +1774,67 @@ function BookingDetailScreen({ route, navigation }: any) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.screenContent}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backButtonRow}>
+          <Text style={styles.backButtonText}>← Back</Text>
+        </Pressable>
+
         {loading || !booking ? (
           <ActivityIndicator size="large" color="#22c55e" />
         ) : (
-          <View style={styles.card}>
-            <Text style={styles.heading}>Booking Detail</Text>
-            <Text style={styles.listSubtitle}>Careseeker: {booking.family_name ?? 'Unknown'}</Text>
-            <Text style={styles.listSubtitle}>Contact: {booking.emergency_contact_phone ?? 'N/A'}</Text>
-            {booking.emergency_contact_phone ? (
-              <Pressable
-                onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 8,
-                  backgroundColor: '#dcfce7',
-                  padding: 10,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ fontSize: 18 }}>📞</Text>
-                <Text style={{ color: '#166534', fontWeight: '600' }}>Call Caregiver: {booking.emergency_contact_phone}</Text>
-              </Pressable>
-            ) : null}
-            <Text style={styles.listSubtitle}>
-              Service: {booking.date ? new Date(booking.date).toLocaleDateString() : 'N/A'} {booking.start_time ?? ''}
-            </Text>
-            <Text style={styles.listSubtitle}>Location: {booking.service_address ?? 'Address unavailable'}</Text>
-            {booking.check_in_time ? (
-              <Text style={[styles.listSubtitle, { color: '#16a34a' }]}>
-                ✓ Checked in: {new Date(booking.check_in_time).toLocaleString()}
-              </Text>
-            ) : null}
-            {booking.check_out_time ? (
-              <Text style={styles.listSubtitle}>
-                ✓ Checked out: {new Date(booking.check_out_time).toLocaleString()}
-              </Text>
-            ) : null}
-
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status), alignSelf: 'flex-start' }]}>
-              <Text style={styles.statusBadgeText}>{getStatusLabel(booking.status)}</Text>
+          <>
+            <View style={styles.headerCardStyle}>
+              <Text style={styles.bookingIdStyle}>Booking Detail</Text>
+              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status) }]}>
+                <Text style={styles.statusText}>{getStatusLabel(booking.status)}</Text>
+              </View>
             </View>
 
-            {booking.emergency_contact_phone ? (
-              <Pressable
-                onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 8,
-                  backgroundColor: '#dcfce7',
-                  padding: 10,
-                  borderRadius: 8,
-                }}
-              >
-                <Text style={{ fontSize: 18 }}>📞</Text>
-                <Text style={{ color: '#166534', fontWeight: '600' }}>Call Careseeker: {booking.emergency_contact_phone}</Text>
-              </Pressable>
-            ) : null}
+            <View style={styles.infoCardStyle}>
+              <Text style={styles.sectionLabelStyle}>👤 CARESEEKER</Text>
+              <Text style={styles.nameStyle}>{booking.family_name ?? 'Unknown'}</Text>
+              {booking.emergency_contact_phone ? (
+                <Pressable
+                  onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
+                  style={styles.callButtonStyle}
+                >
+                  <Text style={styles.callIconStyle}>📞</Text>
+                  <Text style={styles.callTextStyle}>Call Careseeker: {booking.emergency_contact_phone}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            <View style={styles.infoCardStyle}>
+              <Text style={styles.sectionLabelStyle}>📋 SERVICE DETAILS</Text>
+              <Text style={styles.detailRowStyle}>
+                📅 {booking.date ? new Date(booking.date).toLocaleDateString() : 'N/A'} at {booking.start_time ?? 'N/A'}
+              </Text>
+              <Text style={styles.detailRowStyle}>⏱ Duration: {booking.duration_hours ?? 0} hours</Text>
+              <Text style={styles.detailRowStyle}>📍 {booking.service_address ?? 'Address unavailable'}</Text>
+              {booking.check_in_time ? (
+                <Text style={[styles.detailRowStyle, { color: '#16a34a' }]}>
+                  ✓ Checked in: {new Date(booking.check_in_time).toLocaleString()}
+                </Text>
+              ) : null}
+              {booking.check_out_time ? (
+                <Text style={styles.detailRowStyle}>
+                  ✓ Checked out: {new Date(booking.check_out_time).toLocaleString()}
+                </Text>
+              ) : null}
+            </View>
 
             {booking.status === 'in_progress' && isLocationSharing ? (
               <View style={styles.locationSharingRow}>
                 <View style={styles.locationSharingDot} />
                 <Text style={styles.locationSharingText}>Sharing location with careseeker</Text>
+              </View>
+            ) : null}
+
+            {booking.status === 'awaiting_confirmation' || booking.status === 'completion_requested' ? (
+              <View style={{ backgroundColor: '#fff7ed', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#fed7aa' }}>
+                <Text style={{ color: '#9a3412', fontSize: 13, fontWeight: '700' }}>Awaiting Confirmation</Text>
+                <Text style={{ color: '#9a3412', fontSize: 13, marginTop: 4 }}>
+                  The service is complete and the careseeker needs to confirm it.
+                </Text>
               </View>
             ) : null}
 
@@ -1655,7 +1908,7 @@ function BookingDetailScreen({ route, navigation }: any) {
               </View>
             ) : null}
 
-          </View>
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -1797,6 +2050,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   const [booking, setBooking] = useState<AssignedBooking | null>(null);
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [caregiverLocation, setCaregiverLocation] = useState<Coordinates | null>(null);
   const [selfLocation, setSelfLocation] = useState<Coordinates | null>(null);
   const [caregiverUpdatedAt, setCaregiverUpdatedAt] = useState<string | null>(null);
@@ -1809,6 +2063,34 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const mapRef = useRef<MapView | null>(null);
+
+  const now = new Date();
+  const bookedDateTime = booking ? getBookingStartDateTime(booking) : null;
+  const checkInWindowStart = bookedDateTime ? new Date(bookedDateTime.getTime() - 30 * 60 * 1000) : null;
+  const canCheckIn = Boolean(booking?.status === 'accepted' && checkInWindowStart && now >= checkInWindowStart);
+  const canCheckOutByDuration = Boolean(
+    booking?.status === 'in_progress' &&
+      booking.check_in_time &&
+      booking.duration_hours &&
+      now >= new Date(new Date(booking.check_in_time).getTime() + booking.duration_hours * 60 * 60 * 1000),
+  );
+  const statusUpdating = updating;
+  const isLocationSharing = Boolean(booking?.status === 'in_progress' && caregiverLocation);
+
+  const cardStyle = {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#dcfce7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+    gap: 8,
+  } as const;
 
   const loadBooking = useCallback(async () => {
     if (!token || !bookingId) return;
@@ -1989,6 +2271,94 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
     }
   };
 
+  const handleStatusUpdate = async (
+    nextStatus: 'accepted' | 'rejected' | 'in_progress' | 'awaiting_confirmation' | 'completed',
+  ) => {
+    if (!token || !booking) return;
+
+    if ((nextStatus === 'completed' || nextStatus === 'awaiting_confirmation') && !canCheckOutByDuration) {
+      Alert.alert('Too early', 'You cannot check out before the service duration is complete');
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      const updated = await updateBookingStatus(
+        token,
+        booking.id,
+        nextStatus,
+        nextStatus === 'in_progress' || nextStatus === 'completed' || nextStatus === 'awaiting_confirmation',
+      );
+      setBooking(updated);
+
+      if (nextStatus === 'accepted') {
+        Alert.alert('Success', 'Booking Accepted!');
+      } else if (nextStatus === 'rejected') {
+        Alert.alert('Success', 'Booking Rejected');
+      } else if (nextStatus === 'in_progress') {
+        Alert.alert('Success', 'Checked in successfully.');
+      } else if (nextStatus === 'awaiting_confirmation') {
+        Alert.alert('Success', 'Service marked complete and sent for confirmation.');
+      } else {
+        Alert.alert('Success', 'Checked out successfully.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update booking status.';
+      Alert.alert('Error', message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleUploadProof = async () => {
+    if (!token || !booking) return;
+
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission denied', 'Camera permission is required to upload proof.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.7,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      const formData = new FormData();
+      formData.append('proof_image', {
+        uri: asset.uri,
+        name: `booking-proof-${Date.now()}.jpg`,
+        type: 'image/jpeg',
+      } as any);
+
+      setUploading(true);
+      const response = await fetch(`${API_BASE_URL}/bookings/${booking.id}/upload-proof/`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseError(response));
+      }
+
+      const data = await response.json();
+      setBooking(data);
+      Alert.alert('Success', 'Proof uploaded successfully.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Proof upload failed.';
+      Alert.alert('Error', message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleEmergencyPress = useCallback(() => {
     if (!token || !booking) {
       Alert.alert('Auth required', 'Please login again to trigger an emergency.');
@@ -2008,17 +2378,162 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.screenContent}>
-        {loading || !booking ? (
-          <ActivityIndicator size="large" color="#22c55e" />
-        ) : (
-          <View style={styles.card}>
-            <Text style={styles.heading}>Booking Detail</Text>
-            <Text style={styles.listSubtitle}>Caregiver: {booking.caregiver_name ?? 'Unknown'}</Text>
-            <Text style={styles.listSubtitle}>Contact: {booking.emergency_contact_phone ?? 'N/A'}</Text>
-            {booking.emergency_contact_phone ? (
-              <Pressable
-                onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
+      <Pressable
+        onPress={() => navigation.goBack()}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 4, padding: 16, paddingBottom: 8 }}
+      >
+        <Text style={{ color: '#22c55e', fontSize: 16, fontWeight: '600' }}>← Back</Text>
+      </Pressable>
+
+      <ScrollView contentContainerStyle={{ backgroundColor: '#f0fdf4', flexGrow: 1 }} showsVerticalScrollIndicator={false}>
+        {loading && !booking ? (
+          <View
+            style={{
+              flex: 1,
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: 12,
+              paddingTop: 60,
+              backgroundColor: '#f0fdf4',
+            }}
+          >
+            <ActivityIndicator size="large" color="#22c55e" />
+            <Text style={{ color: '#64748b', fontSize: 14, textAlign: 'center' }}>Loading bookings...</Text>
+            <Text
+              style={{
+                color: '#94a3b8',
+                fontSize: 12,
+                textAlign: 'center',
+                paddingHorizontal: 32,
+              }}
+            >
+              This may take a moment if server is starting up
+            </Text>
+          </View>
+        ) : booking ? (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+            <View style={cardStyle}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 18,
+                    fontWeight: '700',
+                    color: '#1e3a5f',
+                  }}
+                >
+                  Booking Detail
+                </Text>
+                <View
+                  style={{
+                    backgroundColor: getStatusColor(booking.status),
+                    borderRadius: 999,
+                    paddingHorizontal: 12,
+                    paddingVertical: 4,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: '#ffffff',
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {getStatusLabel(booking.status)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={cardStyle}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: '700',
+                  color: '#64748b',
+                  letterSpacing: 1,
+                }}
+              >
+                👤 CARESEEKER
+              </Text>
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: '700',
+                  color: '#1e3a5f',
+                }}
+              >
+                {booking.family_name ?? 'Unknown'}
+              </Text>
+
+              {booking.emergency_contact_phone ? (
+                <Pressable
+                  onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    backgroundColor: '#dcfce7',
+                    padding: 10,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text>📞</Text>
+                  <Text
+                    style={{
+                      color: '#166534',
+                      fontWeight: '600',
+                      fontSize: 14,
+                    }}
+                  >
+                    {booking.emergency_contact_phone}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            <View style={cardStyle}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  fontWeight: '700',
+                  color: '#64748b',
+                  letterSpacing: 1,
+                }}
+              >
+                📋 SERVICE DETAILS
+              </Text>
+
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: '#475569', fontSize: 14 }}>
+                  📅 {booking.date ? new Date(booking.date).toLocaleDateString() : 'N/A'} at {booking.start_time ?? ''}
+                </Text>
+                <Text style={{ color: '#475569', fontSize: 14 }}>
+                  ⏱ Duration: {booking.duration_hours ?? 'N/A'} hours
+                </Text>
+                <Text style={{ color: '#475569', fontSize: 14 }}>
+                  📍 {booking.service_address ?? 'Not specified'}
+                </Text>
+                {booking.check_in_time ? (
+                  <Text style={{ color: '#16a34a', fontSize: 14 }}>
+                    ✓ Checked in: {new Date(booking.check_in_time).toLocaleString()}
+                  </Text>
+                ) : null}
+                {booking.check_out_time ? (
+                  <Text style={{ color: '#475569', fontSize: 14 }}>
+                    ✓ Checked out: {new Date(booking.check_out_time).toLocaleString()}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            {booking.status === 'in_progress' && isLocationSharing ? (
+              <View
                 style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -2026,73 +2541,175 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                   backgroundColor: '#dcfce7',
                   padding: 10,
                   borderRadius: 8,
+                  marginBottom: 8,
                 }}
               >
-                <Text style={{ fontSize: 18 }}>📞</Text>
-                <Text style={{ color: '#166534', fontWeight: '600' }}>Call Careseeker: {booking.emergency_contact_phone}</Text>
-              </Pressable>
+                <View
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 999,
+                    backgroundColor: '#16a34a',
+                  }}
+                />
+                <Text
+                  style={{
+                    color: '#166534',
+                    fontSize: 13,
+                    fontWeight: '600',
+                  }}
+                >
+                  Sharing live location with careseeker
+                </Text>
+              </View>
             ) : null}
-            <Text style={styles.listSubtitle}>
-              Service: {booking.date ? new Date(booking.date).toLocaleDateString() : 'N/A'} {booking.start_time ?? ''}
-            </Text>
-            <Text style={styles.listSubtitle}>Location: {booking.service_address ?? 'Address unavailable'}</Text>
 
-            {booking.check_in_time ? (
-              <Text style={[styles.listSubtitle, { color: '#16a34a' }]}>
-                ✓ Checked in: {new Date(booking.check_in_time).toLocaleString()}
-              </Text>
+            {booking.status === 'pending' ? (
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    borderRadius: 10,
+                    backgroundColor: '#22c55e',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: statusUpdating ? 0.7 : 1,
+                  }}
+                  onPress={() => handleStatusUpdate('accepted')}
+                  disabled={statusUpdating}
+                >
+                  {statusUpdating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Accept Booking</Text>}
+                </Pressable>
+
+                <Pressable
+                  style={{
+                    flex: 1,
+                    height: 48,
+                    borderRadius: 10,
+                    backgroundColor: '#dc2626',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: statusUpdating ? 0.7 : 1,
+                  }}
+                  onPress={() => handleStatusUpdate('rejected')}
+                  disabled={statusUpdating}
+                >
+                  {statusUpdating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Reject Booking</Text>}
+                </Pressable>
+              </View>
             ) : null}
 
-            {booking.check_out_time ? (
-              <Text style={styles.listSubtitle}>
-                ✓ Checked out: {new Date(booking.check_out_time).toLocaleString()}
-              </Text>
+            {booking.status === 'accepted' ? (
+              <>
+                <Pressable
+                  style={{
+                    height: 48,
+                    borderRadius: 10,
+                    backgroundColor: '#22c55e',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: !canCheckIn || statusUpdating ? 0.7 : 1,
+                  }}
+                  onPress={() => handleStatusUpdate('in_progress')}
+                  disabled={statusUpdating || !canCheckIn}
+                >
+                  {statusUpdating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Check In</Text>}
+                </Pressable>
+
+                {!canCheckIn && bookedDateTime ? (
+                  <Text style={{ color: '#475569', fontSize: 13, marginTop: 6 }}>
+                    Check In available at {bookedDateTime.toLocaleString()}
+                  </Text>
+                ) : null}
+              </>
+            ) : null}
+
+            {booking.status === 'in_progress' ? (
+              <>
+                <Pressable
+                  style={{
+                    height: 48,
+                    borderRadius: 10,
+                    backgroundColor: '#22c55e',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: !canCheckOutByDuration || statusUpdating ? 0.7 : 1,
+                    marginBottom: 12,
+                  }}
+                  onPress={() => handleStatusUpdate('awaiting_confirmation')}
+                  disabled={statusUpdating || !canCheckOutByDuration}
+                >
+                  {statusUpdating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Complete Service</Text>}
+                </Pressable>
+
+                {!canCheckOutByDuration ? (
+                  <Text style={{ color: '#475569', fontSize: 13, marginBottom: 12 }}>
+                    You cannot check out before the service duration is complete
+                  </Text>
+                ) : null}
+
+                <Pressable
+                  style={{
+                    height: 48,
+                    borderRadius: 10,
+                    backgroundColor: '#ffffff',
+                    borderWidth: 1,
+                    borderColor: '#22c55e',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: uploading ? 0.7 : 1,
+                  }}
+                  onPress={handleUploadProof}
+                  disabled={uploading}
+                >
+                  {uploading ? (
+                    <ActivityIndicator color="#22c55e" />
+                  ) : (
+                    <Text style={{ color: '#16a34a', fontWeight: '700' }}>Upload Proof</Text>
+                  )}
+                </Pressable>
+              </>
+            ) : null}
+
+            {booking.status === 'completed' ? (
+              <View
+                style={{
+                  marginTop: 10,
+                  borderRadius: 999,
+                  alignSelf: 'flex-start',
+                  backgroundColor: '#16a34a',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                }}
+              >
+                <Text style={{ color: '#ffffff', fontWeight: '700' }}>Completed</Text>
+              </View>
+            ) : null}
+
+            {booking.status === 'awaiting_confirmation' || booking.status === 'completion_requested' ? (
+              <View
+                style={{
+                  marginTop: 10,
+                  borderRadius: 999,
+                  alignSelf: 'flex-start',
+                  backgroundColor: '#f59e0b',
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                }}
+              >
+                <Text style={{ color: '#ffffff', fontWeight: '700' }}>Awaiting Confirmation</Text>
+              </View>
             ) : null}
 
             {booking.proof_image ? (
-              <View style={{
-                backgroundColor: '#ffffff',
-                borderRadius: 12,
-                padding: 16,
-                gap: 8,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.06,
-                shadowRadius: 8,
-                elevation: 2,
-              }}>
-                <Text style={styles.sectionTitle}>Service Proof</Text>
+              <View style={cardStyle}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', letterSpacing: 1 }}>📷 PROOF</Text>
                 <Pressable onPress={() => setShowFullImage(true)}>
                   <Image source={{ uri: booking.proof_image }} style={styles.previewImage} resizeMode="cover" />
-                  <Text style={styles.mutedText}>Tap to view full screen</Text>
+                  <Text style={{ color: '#64748b', fontSize: 14, marginTop: 6 }}>Tap to view full screen</Text>
                 </Pressable>
               </View>
-            ) : booking.status === 'in_progress' ? (
-              <View style={{
-                padding: 16,
-                borderRadius: 12,
-                borderWidth: 1,
-                borderColor: '#dcfce7',
-                alignItems: 'center',
-              }}>
-                <Text style={styles.mutedText}>Waiting for caregiver proof...</Text>
-              </View>
-            ) : null}
-
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status), alignSelf: 'flex-start' }]}>
-              <Text style={styles.statusBadgeText}>{getStatusLabel(booking.status)}</Text>
-            </View>
-
-            {distance !== null && booking.status === 'in_progress' ? (
-              <Text style={{
-                color: distance < 0.1 ? '#16a34a' : '#1e3a5f',
-                fontWeight: '700',
-                fontSize: 14,
-                textAlign: 'center',
-                marginBottom: 6,
-              }}>
-                {distance < 0.1 ? 'Your caregiver has arrived' : `Your caregiver is ${distance.toFixed(1)} km away`}
-              </Text>
             ) : null}
 
             {booking.status === 'in_progress' ? (
@@ -2136,35 +2753,21 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
             ) : null}
 
             {booking.status === 'in_progress' ? (
-              <View style={{
-                backgroundColor: '#fff7ed',
-                borderRadius: 12,
-                padding: 16,
-                gap: 12,
-                borderWidth: 1,
-                borderColor: '#fed7aa',
-              }}>
+              <View
+                style={{
+                  backgroundColor: '#fff7ed',
+                  borderRadius: 12,
+                  padding: 16,
+                  gap: 12,
+                  borderWidth: 1,
+                  borderColor: '#fed7aa',
+                  marginTop: 12,
+                }}
+              >
                 <Text style={{ fontSize: 16, fontWeight: '700', color: '#1e3a5f' }}>Help & Safety</Text>
                 <Text style={{ fontSize: 13, color: '#64748b' }}>
                   {booking.caregiver_name ?? 'Your caregiver'} is currently providing your service.
                 </Text>
-
-                {booking.emergency_contact_phone ? (
-                  <Pressable
-                    onPress={() => Linking.openURL(`tel:${booking.emergency_contact_phone}`)}
-                    style={{
-                      backgroundColor: '#dcfce7',
-                      borderRadius: 8,
-                      padding: 12,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <Text style={{ fontSize: 18 }}>📞</Text>
-                    <Text style={{ color: '#166534', fontWeight: '600' }}>Call Caregiver</Text>
-                  </Pressable>
-                ) : null}
 
                 <EmergencyAlertButton
                   subtitle="Sends alert to admin and caregiver immediately"
@@ -2172,116 +2775,106 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                 />
               </View>
             ) : null}
-
-            {booking.status === 'completed' ? (
-              <Text style={styles.inlineInfoText}>Service completed</Text>
-            ) : null}
-
-            {booking.status === 'completion_requested' ? (
-              <Pressable
-                style={[styles.primaryButton, updating && styles.primaryButtonDisabled]}
-                onPress={handleConfirmCompletion}
-                disabled={updating}
-              >
-                {updating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Confirm Completion</Text>}
-              </Pressable>
-            ) : null}
-
-            {booking.status === 'completed' ? (
-              <View style={styles.completedBadge}>
-                <Text style={styles.completedBadgeText}>Completed</Text>
-              </View>
-            ) : null}
           </View>
-        )}
+        ) : null}
+      </ScrollView>
 
-        {showFullImage && booking?.proof_image ? (
-          <Modal visible={showFullImage} transparent>
-            <View style={{
+      {showFullImage && booking?.proof_image ? (
+        <Modal visible={showFullImage} transparent>
+          <View
+            style={{
               flex: 1,
               backgroundColor: 'rgba(0,0,0,0.95)',
               justifyContent: 'center',
               alignItems: 'center',
-            }}>
-              <Pressable
-                onPress={() => setShowFullImage(false)}
-                style={{
-                  position: 'absolute',
-                  top: 50,
-                  right: 20,
-                  padding: 10,
-                  zIndex: 10,
-                }}
-              >
-                <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '700' }}>✕ Close</Text>
-              </Pressable>
-              <Image
-                source={{ uri: booking.proof_image }}
-                style={{ width: '100%', height: '80%' }}
-                resizeMode="contain"
-              />
-            </View>
-          </Modal>
-        ) : null}
+            }}
+          >
+            <Pressable
+              onPress={() => setShowFullImage(false)}
+              style={{
+                position: 'absolute',
+                top: 50,
+                right: 20,
+                padding: 10,
+                zIndex: 10,
+              }}
+            >
+              <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '700' }}>✕ Close</Text>
+            </Pressable>
+            <Image
+              source={{ uri: booking.proof_image }}
+              style={{ width: '100%', height: '80%' }}
+              resizeMode="contain"
+            />
+          </View>
+        </Modal>
+      ) : null}
 
-        {showRating && !ratingSubmitted ? (
-          <Modal visible={showRating} transparent animationType="slide">
-            <View style={{
+      {showRating && !ratingSubmitted ? (
+        <Modal visible={showRating} transparent animationType="slide">
+          <View
+            style={{
               flex: 1,
               backgroundColor: 'rgba(0,0,0,0.5)',
               justifyContent: 'flex-end',
-            }}>
-              <View style={{
+            }}
+          >
+            <View
+              style={{
                 backgroundColor: '#ffffff',
                 borderTopLeftRadius: 20,
                 borderTopRightRadius: 20,
                 padding: 24,
                 gap: 16,
-              }}>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: '#1e3a5f', textAlign: 'center' }}>
-                  Rate Your Experience
-                </Text>
-                <Text style={{ color: '#64748b', textAlign: 'center' }}>
-                  How was {booking?.caregiver_name ?? 'your caregiver'}?
-                </Text>
+              }}
+            >
+              <Text style={{ fontSize: 20, fontWeight: '700', color: '#1e3a5f', textAlign: 'center' }}>
+                Rate Your Experience
+              </Text>
+              <Text style={{ color: '#64748b', textAlign: 'center' }}>
+                How was {booking?.caregiver_name ?? 'your caregiver'}?
+              </Text>
 
-                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Pressable key={star} onPress={() => setRating(star)}>
-                      <Text style={{ fontSize: 36 }}>{star <= rating ? '⭐' : '☆'}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Write a review (optional)"
-                  value={reviewText}
-                  onChangeText={setReviewText}
-                  multiline
-                  numberOfLines={3}
-                  placeholderTextColor="#cbd5e1"
-                />
-
-                <Pressable
-                  style={[
-                    styles.primaryButton,
-                    (rating === 0 || submittingRating) && styles.primaryButtonDisabled,
-                  ]}
-                  disabled={rating === 0 || submittingRating}
-                  onPress={submitRating}
-                >
-                  {submittingRating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>Submit Review</Text>}
-                </Pressable>
-
-                <Pressable style={styles.linkButton} onPress={() => setShowRating(false)}>
-                  <Text style={styles.linkText}>Skip for now</Text>
-                </Pressable>
+              <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <Pressable key={star} onPress={() => setRating(star)}>
+                    <Text style={{ fontSize: 36 }}>{star <= rating ? '⭐' : '☆'}</Text>
+                  </Pressable>
+                ))}
               </View>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Write a review (optional)"
+                value={reviewText}
+                onChangeText={setReviewText}
+                multiline
+                numberOfLines={3}
+                placeholderTextColor="#cbd5e1"
+              />
+
+              <Pressable
+                style={{
+                  height: 48,
+                  borderRadius: 10,
+                  backgroundColor: '#22c55e',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  opacity: rating === 0 || submittingRating ? 0.7 : 1,
+                }}
+                disabled={rating === 0 || submittingRating}
+                onPress={submitRating}
+              >
+                {submittingRating ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Submit Review</Text>}
+              </Pressable>
+
+              <Pressable style={{ alignSelf: 'center', marginTop: 8 }} onPress={() => setShowRating(false)}>
+                <Text style={{ color: '#22c55e', fontWeight: '600', fontSize: 14 }}>Skip for now</Text>
+              </Pressable>
             </View>
-          </Modal>
-        ) : null}
-      </ScrollView>
+          </View>
+        </Modal>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -3099,6 +3692,87 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 12,
     fontWeight: '700',
+  },
+  backButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 16,
+    paddingBottom: 8,
+  },
+  backButtonText: {
+    color: '#22c55e',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  headerCardStyle: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  infoCardStyle: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  bookingIdStyle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1e3a5f',
+  },
+  statusText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sectionLabelStyle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#64748b',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  nameStyle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1e3a5f',
+  },
+  detailRowStyle: {
+    color: '#64748b',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  callButtonStyle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#dcfce7',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  callIconStyle: {
+    fontSize: 18,
+  },
+  callTextStyle: {
+    color: '#166534',
+    fontWeight: '600',
   },
   completedBadge: {
     marginTop: 10,

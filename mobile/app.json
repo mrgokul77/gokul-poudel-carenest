@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "CareNest",
+    "slug": "carenest",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -14,6 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.carenest.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "CareNest uses your location for caregiver check-in and check-out timestamps.",
         "NSCameraUsageDescription": "CareNest uses your camera to capture live proof photos and videos.",
@@ -45,6 +46,11 @@
     ],
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "863b16bc-e7f8-4f76-ba42-efc1e8254895"
+      }
     }
   }
 }
