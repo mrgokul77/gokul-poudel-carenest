@@ -11,7 +11,7 @@ class Util:
                 "from": "CareNest <noreply@carenestapp.me>",
                 "to": [data['to_email']],
                 "subject": data['subject'],
-                "html": f"<p>{data['body']}</p>"
+                "html": data['body']
             })
             print("✅ Email sent via Resend")
             return True

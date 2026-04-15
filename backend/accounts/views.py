@@ -796,42 +796,33 @@ class EmergencyNotifyCaregiverView(APIView):
             return Response({"error": "Caregiver email is unavailable"}, status=status.HTTP_400_BAD_REQUEST)
 
         message_override = (request.data.get("message") or "").strip()
-        careseeker_profile = getattr(emergency.careseeker, "profile", None)
-        careseeker_phone = getattr(careseeker_profile, "phone", None) or "N/A"
-
-        subject = "⚠ Emergency Alert - Action Required | CareNest"
+        subject = "URGENT - Emergency Alert | CareNest"
         triggered_time = timezone.localtime(emergency.created_at).strftime("%b %d, %Y %I:%M %p")
-        helpline_number = "01-5551234"
-        booking_details = [
-            f"Booking ID: {emergency.booking_id or 'N/A'}",
-            f"Booking Status: {getattr(booking, 'status', None) or 'N/A'}",
-            f"Service: {getattr(booking, 'service_type', None) or getattr(booking, 'service_name', None) or 'N/A'}",
-            f"Date: {getattr(booking, 'date', None) or 'N/A'}",
-            f"Start Time: {getattr(booking, 'start_time', None) or 'N/A'}",
-            f"Address: {getattr(booking, 'service_address', None) or 'N/A'}",
-        ]
+        booking_date = getattr(booking, "date", None)
+        booking_time = getattr(booking, "start_time", None)
+        booking_address = getattr(booking, "service_address", None) or "N/A"
 
-        email_body = [
-            f"Dear {caregiver.username},",
-            "",
-            f"A careseeker under your care, {emergency.careseeker.username}, has triggered an emergency alert at {triggered_time}.",
-            "",
-            "Please check on them immediately and contact the admin if further assistance is needed.",
-            "",
-            "Booking Details:",
-            *booking_details,
-            "",
-            f"Careseeker Phone: {careseeker_phone}",
-            f"CareNest Help Team: {helpline_number}",
-        ]
+        email_body = (
+            f"Dear {caregiver.username},<br><br>"
+            f"An emergency alert has been triggered by {emergency.careseeker.username}, who is currently under your care. Please respond and check on them immediately.<br><br>"
+            f"Booking Details:<br>"
+            f"&nbsp;&nbsp;- Date: {booking_date or 'N/A'}<br>"
+            f"&nbsp;&nbsp;- Time: {booking_time or 'N/A'}<br>"
+            f"&nbsp;&nbsp;- Address: {booking_address}<br><br>"
+            f"For immediate assistance, contact the CareNest help team:<br>"
+            f"&nbsp;&nbsp;CareNest Helpline: 9800000000<br><br>"
+            f"Please do not ignore this message. This alert was triggered at {triggered_time}.<br><br>"
+            "Regards,<br>"
+            "CareNest Admin Team"
+        )
 
         if message_override:
-            email_body.extend(["", "Admin Message:", message_override])
+            email_body += f"<br><br>Admin Message:<br>{message_override}"
 
         email_sent = Util.send_email({
             "to_email": caregiver_email,
             "subject": subject,
-            "body": "<br>".join(email_body),
+            "body": email_body,
         })
 
         if not email_sent:
