@@ -10,15 +10,48 @@ import random
 from django.utils.timezone import now
 from datetime import timedelta
 import json
+from backend.error_messages import ErrorMessages
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     # generates random 6-digit code and sends it via email
+    email = serializers.EmailField(
+        error_messages={
+            "required": ErrorMessages.EMAIL_REQUIRED,
+            "blank": ErrorMessages.EMAIL_REQUIRED,
+            "invalid": ErrorMessages.VALID_EMAIL_REQUIRED,
+        }
+    )
+    username = serializers.CharField(
+        error_messages={
+            "required": ErrorMessages.FULL_NAME_REQUIRED,
+            "blank": ErrorMessages.FULL_NAME_REQUIRED,
+        }
+    )
+    password = serializers.CharField(
+        write_only=True,
+        error_messages={
+            "required": ErrorMessages.PASSWORD_REQUIRED,
+            "blank": ErrorMessages.PASSWORD_REQUIRED,
+        },
+    )
+
     class Meta:
         model = User
         fields = ['email', 'username', 'password', 'role']
         extra_kwargs = {
             'password': {'write_only': True}
         }
+
+    def validate_email(self, value):
+        normalized = value.strip().lower()
+        if User.objects.filter(email__iexact=normalized).exists():
+            raise serializers.ValidationError(ErrorMessages.EMAIL_ALREADY_REGISTERED)
+        return normalized
+
+    def validate_password(self, value):
+        if len(value or "") < 8:
+            raise serializers.ValidationError(ErrorMessages.PASSWORD_MIN_LENGTH)
+        return value
         
     def validate(self, attrs):
         # made it a property so create() can also access it
@@ -48,14 +81,26 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         except Exception as e:
             print(f"Email sending failed: {e}")
             user.delete()
-            raise serializers.ValidationError("Failed to send OTP email. Please try again.")
+            raise serializers.ValidationError(ErrorMessages.SERVER_ERROR)
 
         return user
 
 class VerifyOTPSerializer(serializers.Serializer):
     # matches what frontend sends and compares with stored OTP
-    email = serializers.EmailField()
-    otp = serializers.CharField(max_length=6)
+    email = serializers.EmailField(
+        error_messages={
+            "required": ErrorMessages.EMAIL_REQUIRED,
+            "blank": ErrorMessages.EMAIL_REQUIRED,
+            "invalid": ErrorMessages.VALID_EMAIL_REQUIRED,
+        }
+    )
+    otp = serializers.CharField(
+        max_length=6,
+        error_messages={
+            "required": ErrorMessages.OTP_REQUIRED,
+            "blank": ErrorMessages.OTP_REQUIRED,
+        },
+    )
 
     def validate(self, attrs):
         email = attrs.get('email')
@@ -64,17 +109,17 @@ class VerifyOTPSerializer(serializers.Serializer):
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            raise serializers.ValidationError("Invalid email")
+            raise serializers.ValidationError(ErrorMessages.EMAIL_NOT_REGISTERED)
 
         if user.is_verified:
             raise serializers.ValidationError("Account already verified")
 
         if str(user.otp) != str(otp):
-            raise serializers.ValidationError("Invalid OTP")
+            raise serializers.ValidationError(ErrorMessages.OTP_INCORRECT)
 
         # TODO: make this configurable, hardcoded 10 mins for now
         if now() > user.otp_created_at + timedelta(minutes=10):
-            raise serializers.ValidationError("OTP has expired")
+            raise serializers.ValidationError(ErrorMessages.OTP_EXPIRED)
 
         # marking verified so login works
         user.is_verified = True
@@ -90,8 +135,20 @@ class VerifyOTPSerializer(serializers.Serializer):
         return attrs
 
 class UserLoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
+    email = serializers.EmailField(
+        error_messages={
+            "required": ErrorMessages.EMAIL_REQUIRED,
+            "blank": ErrorMessages.EMAIL_REQUIRED,
+            "invalid": ErrorMessages.VALID_EMAIL_REQUIRED,
+        }
+    )
+    password = serializers.CharField(
+        write_only=True,
+        error_messages={
+            "required": ErrorMessages.PASSWORD_REQUIRED,
+            "blank": ErrorMessages.PASSWORD_REQUIRED,
+        },
+    )
 
 
 class SavePushTokenSerializer(serializers.Serializer):
@@ -146,6 +203,26 @@ class UserProfileSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+    def validate_phone(self, value):
+        phone = (value or "").strip()
+        if phone and (not phone.isdigit() or len(phone) != 10):
+            raise serializers.ValidationError(ErrorMessages.INVALID_PHONE)
+        return phone
+
+    def validate_profile_image(self, value):
+        if not value:
+            return value
+
+        allowed = {"image/jpeg", "image/png"}
+        if getattr(value, "content_type", "") not in allowed:
+            raise serializers.ValidationError(ErrorMessages.PROFILE_PHOTO_INVALID_TYPE)
+
+        max_size = 2 * 1024 * 1024
+        if getattr(value, "size", 0) > max_size:
+            raise serializers.ValidationError(ErrorMessages.PROFILE_PHOTO_TOO_LARGE)
+
+        return value
 
     def get_review_count(self, obj):
         user = obj.user
@@ -219,7 +296,7 @@ class SendPasswordResetEmailSerializer(serializers.Serializer):
             Util.send_email(data)
             return value
         else:
-            raise serializers.ValidationError("You are not a registered user")
+            raise serializers.ValidationError(ErrorMessages.EMAIL_NOT_REGISTERED)
         
 class UserPasswordResetSerializer(serializers.Serializer):
     # validates the token and sets a new password if it's still valid

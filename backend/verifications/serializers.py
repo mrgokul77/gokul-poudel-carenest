@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import CaregiverVerification
-from .validators import validate_image_file
+from .validators import validate_image_file, validate_document_file
 
 
 class CaregiverVerificationSerializer(serializers.ModelSerializer):
@@ -53,7 +53,7 @@ class CaregiverVerificationSerializer(serializers.ModelSerializer):
         return validate_image_file(value)
     
     def validate_certificate(self, value):
-        return validate_image_file(value)
+        return validate_document_file(value)
 
 
 class AdminCaregiverVerificationSerializer(serializers.ModelSerializer):

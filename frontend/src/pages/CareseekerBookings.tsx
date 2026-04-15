@@ -4,6 +4,7 @@ import BookingCard, { type Booking } from "../components/BookingCard";
 import ComplaintModal from "../components/ComplaintModal";
 import { bookingsApi, paymentsApi, reviewsApi, complaintsApi } from "../api/axios";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { extractApiError, UIErrorMessages } from "../utils/apiErrors";
 
 interface UserComplaint {
   id: number;
@@ -72,7 +73,7 @@ const CareseekerBookings = () => {
     totalAmount?: string | null,
   ) => {
     if (!totalAmount) {
-      alert("Payment amount not available");
+      alert(UIErrorMessages.paymentInitFailed);
       return;
     }
 
@@ -89,15 +90,11 @@ const CareseekerBookings = () => {
       if (response.data.payment_url) {
         window.location.href = response.data.payment_url;
       } else {
-        alert("Failed to initiate payment");
+        alert(UIErrorMessages.paymentInitFailed);
         setPayClicked(null);
       }
     } catch (error: any) {
-      alert(
-        error.response?.data?.error ||
-          error.response?.data?.detail ||
-          "Payment initiation failed",
-      );
+      alert(extractApiError(error, UIErrorMessages.paymentInitFailed));
       setPayClicked(null);
     } finally {
       setPaymentLoading(null);
@@ -159,22 +156,22 @@ const CareseekerBookings = () => {
       await bookingsApi.post(`${id}/confirm-completion/`);
       await fetchBookings();
     } catch (error: any) {
-      alert(
-        error.response?.data?.error ||
-          error.response?.data?.detail ||
-          "Failed to confirm completion",
-      );
+      alert(extractApiError(error, "This booking has expired and can no longer be updated."));
     }
   };
 
   const handleSubmitRating = async () => {
     if (!ratingModalBooking) return;
     if (!ratingModalBooking.caregiver) {
-      alert("Missing caregiver reference for this booking. Please refresh and try again.");
+      alert("Something went wrong on our end. Please try again later.");
       return;
     }
     if (ratingValue < 1 || ratingValue > 5) {
-      alert("Rating must be between 1 and 5 stars.");
+      alert("Please select a star rating between 1 and 5.");
+      return;
+    }
+    if (!ratingComment.trim()) {
+      alert("Please write a review before submitting.");
       return;
     }
     setRatingSubmitting(true);
@@ -189,11 +186,7 @@ const CareseekerBookings = () => {
       await fetchBookings();
       setRatingModalBooking(null);
     } catch (error: any) {
-      alert(
-        error.response?.data?.error ||
-          error.response?.data?.detail ||
-          "Failed to submit review",
-      );
+      alert(extractApiError(error, "You can only submit a review after payment is completed."));
     } finally {
       setRatingSubmitting(false);
     }

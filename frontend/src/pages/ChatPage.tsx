@@ -10,6 +10,7 @@ import VerifiedAvatar from "../components/VerifiedAvatar";
 import CaregiverProfileCard from "../components/CaregiverProfileCard";
 import type { CaregiverProfileCardData } from "../components/CaregiverProfileCard";
 import api, { chatApi, subscribeAccessTokenRefresh } from "../api/axios";
+import { UIErrorMessages } from "../utils/apiErrors";
 
 interface Message {
   id: number;
@@ -130,10 +131,17 @@ const ChatPage = () => {
   }, []);
 
   const sendMessage = () => {
-    if (!message.trim()) return;
+    if (!message.trim()) {
+      setError(UIErrorMessages.chatEmptyMessage);
+      return;
+    }
     const socket = wsRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ text: message.trim() }));
+      setError(null);
+    } else {
+      setError(UIErrorMessages.chatSendFailed);
+      return;
     }
     setMessage("");
   };

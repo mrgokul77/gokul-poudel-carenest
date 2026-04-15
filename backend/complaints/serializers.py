@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Complaint
 from bookings.models import Booking
+from backend.error_messages import ErrorMessages
 
 
 class ComplaintSerializer(serializers.ModelSerializer):
@@ -11,6 +12,16 @@ class ComplaintSerializer(serializers.ModelSerializer):
         model = Complaint
         fields = ["id", "booking_id", "booking_date", "category", "description", "status", "created_at"]
         read_only_fields = ["id", "status", "created_at"]
+
+    def validate_category(self, value):
+        if not (value or "").strip():
+            raise serializers.ValidationError(ErrorMessages.COMPLAINT_CATEGORY_REQUIRED)
+        return value
+
+    def validate_description(self, value):
+        if not (value or "").strip():
+            raise serializers.ValidationError(ErrorMessages.COMPLAINT_DESCRIPTION_REQUIRED)
+        return value
 
     def create(self, validated_data):
         booking_id = validated_data.pop("booking_id", None)

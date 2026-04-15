@@ -21,6 +21,7 @@ from .permissions import IsCareSeeker
 from verifications.permissions import IsCaregiver
 import pytz
 from notifications.models import Notification
+from backend.error_messages import ErrorMessages
 
 
 def _is_mobile_request(request):
@@ -227,10 +228,16 @@ class BookingCreateView(APIView):
     permission_classes = [IsAuthenticated, IsCareSeeker]
 
     def post(self, request):
+        if not request.data:
+            return Response(
+                {"error": ErrorMessages.BOOKING_REQUIRED_FIELDS},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         caregiver_id = request.data.get("caregiver")
         if not caregiver_id:
             return Response(
-                {"error": "Caregiver is required"},
+                {"error": ErrorMessages.BOOKING_REQUIRED_FIELDS},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         
@@ -258,7 +265,7 @@ class BookingCreateView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = BookingCreateSerializer(data=request.data)
+        serializer = BookingCreateSerializer(data=request.data, context={"request": request})
         if settings.DEBUG:
             print("REQUEST DATA (booking create):", dict(request.data))
         if serializer.is_valid():
@@ -277,7 +284,7 @@ class BookingCreateView(APIView):
                 if booking_dt_np < min_slot_np:
                     return Response(
                         {
-                            "error": "Booking must be at least 1 hour in advance from current time."
+                            "error": ErrorMessages.CAREGIVER_NOT_AVAILABLE
                         },
                         status=status.HTTP_400_BAD_REQUEST,
                     )
@@ -313,19 +320,10 @@ class BookingCreateView(APIView):
             total_amount = float(hourly_rate) * duration_hours
 
             if not is_available:
-                print(f"[BOOKING] Auto rejecting booking for caregiver {caregiver.id} due to conflict")
-                booking = serializer.save(
-                    family=request.user,
-                    caregiver=caregiver,
-                    status="rejected",
-                    total_amount=total_amount,
-                    rejection_reason=AUTO_REJECTION_REASON,
+                return Response(
+                    {"error": ErrorMessages.CAREGIVER_NOT_AVAILABLE},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-                response_data = BookingSerializer(booking, context={"request": request}).data
-                response_data["message"] = AUTO_REJECTION_REASON
-                if conflict_id:
-                    response_data["conflict_booking_id"] = conflict_id
-                return Response(response_data, status=status.HTTP_201_CREATED)
             
             print(f"[BOOKING] Booking {caregiver.id} kept as pending")
             booking = serializer.save(
@@ -338,6 +336,10 @@ class BookingCreateView(APIView):
                 BookingSerializer(booking, context={"request": request}).data,
                 status=status.HTTP_201_CREATED,
             )
+        if isinstance(serializer.errors, dict):
+            explicit_error = serializer.errors.get("error")
+            if isinstance(explicit_error, list) and explicit_error:
+                return Response({"error": str(explicit_error[0])}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -407,7 +409,7 @@ class BookingListView(APIView):
             bookings = Booking.objects.filter(caregiver=request.user)
         else:
             return Response(
-                {"error": "Access denied"},
+                {"error": ErrorMessages.UNAUTHORIZED},
                 status=status.HTTP_403_FORBIDDEN,
             )
         # Auto-expire pending bookings that exceeded 30-minute response window
@@ -426,7 +428,7 @@ class BookingMarkServiceCompleteView(APIView):
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
             return Response(
-                {"error": "Booking not found"},
+                {"error": ErrorMessages.BOOKING_EXPIRED},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -459,7 +461,7 @@ class BookingConfirmCompletionView(APIView):
             booking = Booking.objects.get(pk=pk, family=request.user)
         except Booking.DoesNotExist:
             return Response(
-                {"error": "Booking not found"},
+                {"error": ErrorMessages.BOOKING_EXPIRED},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -493,7 +495,7 @@ class BookingRespondView(APIView):
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
             return Response(
-                {"error": "Booking not found"},
+                {"error": ErrorMessages.BOOKING_EXPIRED},
                 status=status.HTTP_404_NOT_FOUND,
             )
         # Check if pending booking has expired (30-minute window)
@@ -502,12 +504,12 @@ class BookingRespondView(APIView):
                 booking.status = "expired"
                 booking.save()
                 return Response(
-                    {"error": "Booking request expired due to no response from caregiver within 30 minutes."},
+                    {"error": ErrorMessages.BOOKING_EXPIRED},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         elif booking.status != "pending":
             return Response(
-                {"error": f"Booking is already {booking.status}"},
+                {"error": ErrorMessages.BOOKING_EXPIRED if booking.status == "expired" else f"Booking is already {booking.status}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -563,7 +565,7 @@ class BookingUpdateStatusView(APIView):
         try:
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
-            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": ErrorMessages.BOOKING_EXPIRED}, status=status.HTTP_404_NOT_FOUND)
 
         expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
         booking.refresh_from_db()
@@ -625,7 +627,7 @@ class BookingProofUploadView(APIView):
         try:
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
-            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": ErrorMessages.BOOKING_EXPIRED}, status=status.HTTP_404_NOT_FOUND)
 
         expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
         booking.refresh_from_db()
@@ -653,7 +655,7 @@ class BookingUpdateLocationView(APIView):
         try:
             booking = Booking.objects.get(pk=pk, caregiver=request.user)
         except Booking.DoesNotExist:
-            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": ErrorMessages.BOOKING_EXPIRED}, status=status.HTTP_404_NOT_FOUND)
 
         expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
         booking.refresh_from_db()
@@ -697,7 +699,7 @@ class BookingCaregiverLocationView(APIView):
         try:
             booking = Booking.objects.get(pk=pk, family=request.user)
         except Booking.DoesNotExist:
-            return Response({"error": "Booking not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": ErrorMessages.BOOKING_EXPIRED}, status=status.HTTP_404_NOT_FOUND)
 
         expire_stale_in_progress_bookings(Booking.objects.filter(pk=booking.pk))
         booking.refresh_from_db()

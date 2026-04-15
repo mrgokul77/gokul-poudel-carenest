@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "../api/axios";
+import { extractApiError, UIErrorMessages } from "../utils/apiErrors";
 
 const VerifyOTP = () => {
   const [otp, setOtp] = useState("");
@@ -14,11 +15,16 @@ const VerifyOTP = () => {
     e.preventDefault();
     setError("");
 
+    if (!otp.trim()) {
+      setError(UIErrorMessages.otpRequired);
+      return;
+    }
+
     try {
       await api.post("/verify-otp/", { email, otp });
       navigate("/login");
     } catch (err: any) {
-      setError(err.response?.data?.error || "Invalid or expired OTP");
+      setError(extractApiError(err, "Your OTP has expired. Please request a new one."));
     }
   };
 

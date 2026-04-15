@@ -4,6 +4,7 @@ Serializers for chat API responses.
 from rest_framework import serializers
 from .models import Conversation, Message
 from accounts.models import UserProfile
+from backend.error_messages import ErrorMessages
 
 
 class MessageSerializer(serializers.ModelSerializer):
@@ -15,6 +16,11 @@ class MessageSerializer(serializers.ModelSerializer):
         model = Message
         fields = ["id", "conversation", "sender_id", "sender_name", "text", "created_at"]
         read_only_fields = ["id", "conversation", "sender", "created_at"]
+
+    def validate_text(self, value):
+        if not (value or "").strip():
+            raise serializers.ValidationError(ErrorMessages.CHAT_EMPTY_MESSAGE)
+        return value
 
 
 class ConversationListSerializer(serializers.ModelSerializer):

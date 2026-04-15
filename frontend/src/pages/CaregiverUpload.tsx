@@ -8,6 +8,7 @@ import {
   XCircle,
   Clock,
 } from "lucide-react";
+import { extractApiError } from "../utils/apiErrors";
 
 interface VerificationData {
   verification_status: "pending" | "approved" | "rejected";
@@ -67,15 +68,12 @@ const CaregiverUpload = () => {
   const validateFile = (file: File): string | null => {
     const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "application/pdf"];
     if (!allowedTypes.includes(file.type)) {
-      return "Only PDF, JPEG, PNG files are allowed";
+      return "Only JPG, PNG, and PDF files are accepted.";
     }
 
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      return `File size must be less than 5MB. Current size: ${(
-        file.size /
-        (1024 * 1024)
-      ).toFixed(2)}MB`;
+      return "File size must not exceed 5MB.";
     }
 
     return null;
@@ -112,7 +110,7 @@ const CaregiverUpload = () => {
     setMessage("");
 
     if (!citizenshipFront || !citizenshipBack || !certificate) {
-      setError("Please upload all required documents (Citizenship Front, Citizenship Back, and Certificate)");
+      setError("Please select a file to upload.");
       return;
     }
 
@@ -153,11 +151,7 @@ const CaregiverUpload = () => {
       // Refetch status from backend
       await fetchStatus();
     } catch (err: any) {
-      const errorMsg =
-        err.response?.data?.error ||
-        err.response?.data?.detail ||
-        "Upload failed";
-      setError(errorMsg);
+      setError(extractApiError(err, "Something went wrong on our end. Please try again later."));
     } finally {
       setUploading(false);
     }

@@ -9,6 +9,7 @@ from .models import Review
 
 from rest_framework.generics import ListAPIView
 from .serializers import ReviewSerializer
+from backend.error_messages import ErrorMessages
 class ReviewListView(ListAPIView):
     # shows all reviews for a caregiver with average rating
     serializer_class = ReviewSerializer
@@ -42,7 +43,7 @@ class ReviewCreateView(APIView):
 
         if request.user.role != "careseeker":
             return Response(
-                {"error": "Only careseekers can submit reviews."},
+                {"error": ErrorMessages.UNAUTHORIZED},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -54,7 +55,7 @@ class ReviewCreateView(APIView):
 
         if booking.status != "completed":
             return Response(
-                {"error": "You can only review completed bookings."},
+                {"error": ErrorMessages.REVIEW_PAYMENT_REQUIRED},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -88,13 +89,13 @@ class ReviewBookingStatusView(APIView):
         try:
             booking = Booking.objects.get(id=booking_id)
         except Booking.DoesNotExist:
-            return Response({"error": "Booking not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({"error": ErrorMessages.BOOKING_EXPIRED}, status=status.HTTP_404_NOT_FOUND)
 
         is_owner = booking.family_id == request.user.id
         is_caregiver = booking.caregiver_id == request.user.id
         is_admin = getattr(request.user, "role", None) == "admin"
         if not (is_owner or is_caregiver or is_admin):
-            return Response({"error": "You are not allowed to view this booking review status."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"error": ErrorMessages.UNAUTHORIZED}, status=status.HTTP_403_FORBIDDEN)
 
         review = Review.objects.filter(booking=booking).first()
         payload = {

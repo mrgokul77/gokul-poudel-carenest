@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from bookings.models import Booking
 from .models import Review
+from backend.error_messages import ErrorMessages
 
 
 class ReviewSerializer(serializers.ModelSerializer):
@@ -49,21 +50,21 @@ class ReviewSerializer(serializers.ModelSerializer):
 
     def validate_rating(self, value):
         if not 1 <= value <= 5:
-            raise serializers.ValidationError("Rating must be an integer between 1 and 5.")
+            raise serializers.ValidationError(ErrorMessages.REVIEW_RATING_REQUIRED)
         return value
 
     def validate_booking_id(self, value):
         try:
             booking = Booking.objects.get(id=value)
         except Booking.DoesNotExist:
-            raise serializers.ValidationError("Booking not found.")
+            raise serializers.ValidationError(ErrorMessages.BOOKING_EXPIRED)
         self.context["booking"] = booking
         return value
 
     def validate_caregiver_id(self, value):
         booking = self.context.get("booking")
         if not booking:
-            raise serializers.ValidationError("booking_id is required before caregiver_id validation.")
+            raise serializers.ValidationError(ErrorMessages.BOOKING_REQUIRED_FIELDS)
         if booking.caregiver_id != value:
             raise serializers.ValidationError("caregiver_id does not match the booking caregiver.")
         return value
@@ -81,13 +82,15 @@ class ReviewSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("You can only review your own bookings.")
 
         if booking.status != "completed":
-            raise serializers.ValidationError("Only completed bookings can be reviewed.")
+            raise serializers.ValidationError(ErrorMessages.REVIEW_PAYMENT_REQUIRED)
 
         if hasattr(booking, "review") or Review.objects.filter(booking=booking).exists():
             raise serializers.ValidationError("A review has already been submitted for this booking.")
 
         rating = validated_data["rating"]
         review_text = validated_data.get("review_text", "")
+        if not (review_text or "").strip():
+            raise serializers.ValidationError(ErrorMessages.REVIEW_TEXT_REQUIRED)
         comment = validated_data.get("comment", review_text).strip()
 
         review = Review.objects.create(

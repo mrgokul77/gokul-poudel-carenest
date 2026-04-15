@@ -453,7 +453,7 @@ const FindCaregiver = () => {
     !bookingForm.additional_info;
 
   if (isFormEmpty) {
-    setError("Please fill in the required details before submitting your booking request.");
+    setError("Please fill in all required fields.");
     return;
   }
 
@@ -549,14 +549,12 @@ const FindCaregiver = () => {
       const errorMsg =
         ax.response?.data?.error ||
         ax.response?.data?.detail ||
-        "Booking failed";
+        "Something went wrong on our end. Please try again later.";
 
-      if (errorMsg.includes("already have an active booking")) {
-        setError(
-          "You have already requested this caregiver. Please wait for response.",
-        );
-      } else if (errorMsg.includes("at least 1 hour in advance")) {
-        setBookingError(errorMsg);
+      if (errorMsg.includes("pending request")) {
+        setError("You already have a pending request with this caregiver.");
+      } else if (errorMsg.includes("not available")) {
+        setBookingError("This caregiver is not available for the selected date and time. Please choose a different slot.");
       } else if (ax.response?.data?.date) {
         setDateError(ax.response.data.date[0] || "Invalid date");
       } else if (ax.response?.data?.start_time) {

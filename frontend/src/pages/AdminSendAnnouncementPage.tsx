@@ -1,40 +1,15 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import axios from "axios";
 import { ChevronLeft, Megaphone, Send } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { adminApi } from "../api/axios";
+import { extractApiError, UIErrorMessages } from "../utils/apiErrors";
 
 const AUDIENCES = [
   { value: "all", label: "All Users" },
   { value: "caregivers", label: "Caregivers only" },
   { value: "careseekers", label: "Care seekers only" },
 ] as const;
-
-function extractApiError(err: unknown): string {
-  if (axios.isAxiosError(err)) {
-    const data = err.response?.data;
-    if (data == null) {
-      return err.message || "Failed to publish announcement.";
-    }
-    if (typeof data === "string") return data;
-    if (typeof data === "object" && data !== null) {
-      const o = data as Record<string, unknown>;
-      if ("detail" in o && o.detail != null) {
-        const d = o.detail;
-        if (typeof d === "string") return d;
-        if (Array.isArray(d)) return d.map(String).join(" ");
-      }
-      for (const [key, val] of Object.entries(o)) {
-        if (Array.isArray(val) && val.length > 0) {
-          return `${key}: ${String(val[0])}`;
-        }
-        if (typeof val === "string") return `${key}: ${val}`;
-      }
-    }
-  }
-  return "Failed to publish announcement.";
-}
 
 const AdminSendAnnouncementPage = () => {
   const [title, setTitle] = useState("");
@@ -43,12 +18,20 @@ const AdminSendAnnouncementPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [titleError, setTitleError] = useState("");
+  const [messageError, setMessageError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setTitleError("");
+    setMessageError("");
 
-    if (!title.trim() || !message.trim()) {
-      setError("Title and message are required");
+    if (!title.trim()) {
+      setTitleError(UIErrorMessages.announcementTitleRequired);
+      return;
+    }
+    if (!message.trim()) {
+      setMessageError(UIErrorMessages.announcementMessageRequired);
       return;
     }
 
@@ -68,7 +51,14 @@ const AdminSendAnnouncementPage = () => {
       setMessage("");
       setAudience("all");
     } catch (err) {
-      setError(extractApiError(err));
+      const msg = extractApiError(err, "Something went wrong on our end. Please try again later.");
+      if (msg.includes("title")) {
+        setTitleError(UIErrorMessages.announcementTitleRequired);
+      } else if (msg.includes("message")) {
+        setMessageError(UIErrorMessages.announcementMessageRequired);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -129,6 +119,7 @@ const AdminSendAnnouncementPage = () => {
               className="w-full rounded-lg border border-gray-300 bg-green-50 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
               maxLength={255}
             />
+            {titleError ? <p className="text-red-600 text-xs mt-1">{titleError}</p> : null}
           </div>
 
           <div>
@@ -145,6 +136,7 @@ const AdminSendAnnouncementPage = () => {
               rows={8}
               className="w-full min-h-[10rem] rounded-lg border border-gray-300 bg-green-50 px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-y"
             />
+            {messageError ? <p className="text-red-600 text-xs mt-1">{messageError}</p> : null}
           </div>
 
           <div>

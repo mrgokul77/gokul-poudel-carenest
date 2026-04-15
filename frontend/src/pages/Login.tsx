@@ -3,12 +3,15 @@ import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axiosInstance";
+import { extractApiError, UIErrorMessages } from "../utils/apiErrors";
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
+  const [emailError, setEmailError] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const { login } = useAuth();
 
   const navigate = useNavigate();
@@ -16,6 +19,17 @@ const Login = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setEmailError("");
+    setPasswordError("");
+
+    if (!email.trim()) {
+      setEmailError(UIErrorMessages.emailRequired);
+      return;
+    }
+    if (!password.trim()) {
+      setPasswordError(UIErrorMessages.passwordRequired);
+      return;
+    }
 
     try {
       const res = await api.post("/login/", {
@@ -53,7 +67,14 @@ const Login = () => {
         navigate("/admin/dashboard");
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || "Invalid email or password");
+      const msg = extractApiError(err, "Incorrect password. Please try again.");
+      if (msg === UIErrorMessages.emailRequired || msg === UIErrorMessages.validEmail) {
+        setEmailError(msg);
+      } else if (msg === UIErrorMessages.passwordRequired) {
+        setPasswordError(msg);
+      } else {
+        setError(msg);
+      }
     }
   };
 
@@ -93,6 +114,7 @@ const Login = () => {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
+          {emailError && <p className="text-red-500 text-xs mt-1">{emailError}</p>}
         </div>
 
         {/* Password */}
@@ -115,6 +137,7 @@ const Login = () => {
           >
             {show ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
+          {passwordError && <p className="text-red-500 text-xs mt-1">{passwordError}</p>}
         </div>
 
         {/* Forgot password */}

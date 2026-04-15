@@ -8,6 +8,7 @@ from accounts.models import User, CaregiverProfile
 from verifications.models import CaregiverVerification
 from reviews.models import Review
 from django.db.models import Avg, Count
+from backend.error_messages import ErrorMessages
 
 
 class CaregiverListSerializer(serializers.ModelSerializer):
@@ -132,7 +133,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     def validate_emergency_contact_phone(self, value):
         value = value.strip()
         if not value.isdigit() or len(value) != 10:
-            raise serializers.ValidationError("Phone number must be exactly 10 digits.")
+            raise serializers.ValidationError(ErrorMessages.BOOKING_INVALID_PHONE)
         return value
 
     
@@ -158,7 +159,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         from django.utils import timezone
         today = timezone.localdate()
         if value < today:
-            raise serializers.ValidationError("You cannot select a past date or time.")
+            raise serializers.ValidationError(ErrorMessages.CAREGIVER_NOT_AVAILABLE)
         return value
 
     def validate(self, data):
@@ -187,7 +188,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                 )
                 if start_dt < min_slot_time:
                     raise serializers.ValidationError({
-                        "start_time": ["Invalid time slot. Please select a valid available slot."]
+                        "start_time": [ErrorMessages.CAREGIVER_NOT_AVAILABLE]
                     })
         
         caregiver_id = data.get("caregiver")
@@ -203,7 +204,18 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                         f"Services not offered by this caregiver: {', '.join(invalid_services)}"
                     )
             except CaregiverProfile.DoesNotExist:
-                raise serializers.ValidationError("Caregiver profile not found")
+                raise serializers.ValidationError(ErrorMessages.CAREGIVER_NOT_AVAILABLE)
+
+        request = self.context.get("request")
+        caregiver_id_for_duplicate = data.get("caregiver")
+        if request and getattr(request, "user", None) and caregiver_id_for_duplicate:
+            duplicate_exists = Booking.objects.filter(
+                family=request.user,
+                caregiver_id=caregiver_id_for_duplicate,
+                status="pending",
+            ).exists()
+            if duplicate_exists:
+                raise serializers.ValidationError({"error": [ErrorMessages.DUPLICATE_BOOKING]})
 
         lat = data.get("latitude")
         lng = data.get("longitude")
@@ -220,7 +232,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
     def validate_service_types(self, value):
         if not value or len(value) == 0:
-            raise serializers.ValidationError("At least one service must be selected")
+            raise serializers.ValidationError(ErrorMessages.BOOKING_REQUIRED_FIELDS)
         return value
 
 

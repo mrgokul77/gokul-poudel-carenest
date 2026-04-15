@@ -2,20 +2,36 @@ import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
+import { extractApiError, UIErrorMessages } from "../utils/apiErrors";
 
 const Signup = () => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState("careseeker");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
+  const [fieldError, setFieldError] = useState<Record<string, string>>({});
 
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setFieldError({});
+
+    const nextErrors: Record<string, string> = {};
+    if (!username.trim()) nextErrors.username = "Full name is required.";
+    if (!email.trim()) nextErrors.email = UIErrorMessages.emailRequired;
+    if (!password.trim()) nextErrors.password = UIErrorMessages.passwordRequired;
+    if (password && password.length < 8) nextErrors.password = "Password must be at least 8 characters.";
+    if (password !== confirmPassword) nextErrors.confirmPassword = "Passwords do not match.";
+
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldError(nextErrors);
+      return;
+    }
 
     try {
       await api.post("/register/", {
@@ -28,13 +44,15 @@ const Signup = () => {
       // takes them to OTP screen after signup
       navigate("/verify-otp", { state: { email } });
     } catch (err: any) {
-      const data = err.response?.data;
-      if (data) {
-        // show first error from DRF
-        const firstError = Object.values(data).flat()[0];
-        setError(typeof firstError === 'string' ? firstError : "Signup failed");
+      const msg = extractApiError(err, "Something went wrong on our end. Please try again later.");
+      if (msg === UIErrorMessages.emailRequired || msg === UIErrorMessages.validEmail || msg.includes("email")) {
+        setFieldError((prev) => ({ ...prev, email: msg }));
+      } else if (msg === UIErrorMessages.passwordRequired || msg.includes("Password")) {
+        setFieldError((prev) => ({ ...prev, password: msg }));
+      } else if (msg.includes("name") || msg.includes("Full name")) {
+        setFieldError((prev) => ({ ...prev, username: msg }));
       } else {
-        setError("Signup failed");
+        setError(msg);
       }
     }
   };
@@ -78,6 +96,7 @@ const Signup = () => {
             onChange={(e) => setUsername(e.target.value)}
             required
           />
+          {fieldError.username && <p className="text-red-500 text-xs mt-1">{fieldError.username}</p>}
         </div>
 
         {/* Email */}
@@ -93,6 +112,7 @@ const Signup = () => {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
+          {fieldError.email && <p className="text-red-500 text-xs mt-1">{fieldError.email}</p>}
         </div>
 
         {/* Password */}
@@ -115,6 +135,22 @@ const Signup = () => {
           >
             {show ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
+          {fieldError.password && <p className="text-red-500 text-xs mt-1">{fieldError.password}</p>}
+        </div>
+
+        <div className="mb-6 relative">
+          <label className="block text-sm text-gray-700 mb-1">Confirm Password</label>
+          <input
+            type={show ? "text" : "password"}
+            className="w-full bg-transparent border border-gray-300
+              rounded-md px-4 py-3 pr-10 text-sm
+              focus:outline-none focus:border-green-500"
+            placeholder="Confirm your Password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+          />
+          {fieldError.confirmPassword && <p className="text-red-500 text-xs mt-1">{fieldError.confirmPassword}</p>}
         </div>
 
         {/* Role */}

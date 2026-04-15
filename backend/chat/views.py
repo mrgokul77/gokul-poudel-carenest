@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 
 from .models import Conversation, Message
 from .serializers import ConversationListSerializer, MessageSerializer
+from backend.error_messages import ErrorMessages
 
 
 class ChatStartView(APIView):
@@ -19,7 +20,7 @@ class ChatStartView(APIView):
         caregiver_id = request.data.get("caregiver_id")
         if not caregiver_id:
             return Response(
-                {"error": "caregiver_id is required"},
+                {"error": ErrorMessages.FIELD_REQUIRED},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -28,7 +29,7 @@ class ChatStartView(APIView):
         # Only careseekers can initiate conversations
         if user.role != "careseeker":
             return Response(
-                {"error": "Only careseekers can start new conversations."},
+                {"error": ErrorMessages.UNAUTHORIZED},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -37,7 +38,7 @@ class ChatStartView(APIView):
             caregiver = User.objects.get(id=caregiver_id, role="caregiver")
         except User.DoesNotExist:
             return Response(
-                {"error": "Caregiver not found."},
+                {"error": ErrorMessages.UNAUTHORIZED},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -97,7 +98,7 @@ class MessageListView(APIView):
 
         if user not in (conv.user1, conv.user2):
             return Response(
-                {"error": "You are not a participant in this conversation."},
+                {"error": ErrorMessages.UNAUTHORIZED},
                 status=status.HTTP_403_FORBIDDEN,
             )
 

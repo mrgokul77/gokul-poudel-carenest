@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, ChevronLeft, AlertCircle, CheckCircle2 } from "lucide-react";
 import { complaintsApi } from "../api/axios";
+import { extractApiError, UIErrorMessages } from "../utils/apiErrors";
 
 interface ComplaintModalProps {
   isOpen: boolean;
@@ -132,8 +133,16 @@ const ComplaintModal: React.FC<ComplaintModalProps> = ({
 );
 
   const handleSubmit = async () => {
+    if (!category.trim()) {
+      setError(UIErrorMessages.complaintCategoryRequired);
+      return;
+    }
+    if (!description.trim()) {
+      setError(UIErrorMessages.complaintDescriptionRequired);
+      return;
+    }
     if (description.length < 20) {
-      setError("Description must be at least 20 characters.");
+      setError(UIErrorMessages.complaintDescriptionRequired);
       return;
     }
 
@@ -147,22 +156,8 @@ const ComplaintModal: React.FC<ComplaintModalProps> = ({
       });
       onSuccess();
       handleClose();
-    } catch (err: any) {
-      const data = err.response?.data;
-      let errorMsg = "Failed to file complaint.";
-      
-      if (typeof data === "string") {
-        errorMsg = data;
-      } else if (data?.error) {
-        errorMsg = data.error;
-      } else if (data?.detail) {
-        errorMsg = data.detail;
-      } else if (data && typeof data === "object") {
-        // Handle DRF field errors (e.g. { "description": ["Too short"] })
-        errorMsg = Object.values(data).flat().join(" ");
-      }
-      
-      setError(errorMsg);
+    } catch (err: unknown) {
+      setError(extractApiError(err, UIErrorMessages.complaintRequiredFields));
     } finally {
       setSubmitting(false);
     }

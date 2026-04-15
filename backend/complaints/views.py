@@ -4,12 +4,19 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from .models import Complaint
 from .serializers import ComplaintSerializer
+from backend.error_messages import ErrorMessages
 
 
 class FileComplaintView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        if not request.data:
+            return Response(
+                {"error": ErrorMessages.COMPLAINT_REQUIRED_FIELDS},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         booking_id = request.data.get("booking_id")
 
         already_exists = Complaint.objects.filter(
@@ -28,7 +35,12 @@ class FileComplaintView(APIView):
         if serializer.is_valid():
             serializer.save(reporter=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(serializer.errors, dict):
+            if "category" in serializer.errors:
+                return Response({"error": ErrorMessages.COMPLAINT_CATEGORY_REQUIRED}, status=status.HTTP_400_BAD_REQUEST)
+            if "description" in serializer.errors:
+                return Response({"error": ErrorMessages.COMPLAINT_DESCRIPTION_REQUIRED}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": ErrorMessages.COMPLAINT_REQUIRED_FIELDS}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserComplaintListView(APIView):

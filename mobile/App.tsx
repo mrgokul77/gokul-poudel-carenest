@@ -38,6 +38,18 @@ const JWT_TOKEN_KEY = 'jwt_token';
 const USER_ROLE_KEY = 'user_role';
 const API_TIMEOUT_MS = 30000;
 const AUTH_UNAUTHORIZED_CODE = 'AUTH_UNAUTHORIZED';
+const MOBILE_MESSAGES = {
+  emailRequired: 'Email is required.',
+  passwordRequired: 'Password is required.',
+  fullNameRequired: 'Full name is required.',
+  validEmail: 'Please enter a valid email address.',
+  otpRequired: 'Please enter the OTP sent to your email.',
+  otpExpired: 'Your OTP has expired. Please request a new one.',
+  network: 'No internet connection. Please check your network and try again.',
+  server: 'Something went wrong on our end. Please try again later.',
+  unauthorized: 'You do not have permission to perform this action.',
+  sessionExpired: 'Your session has expired. Please log in again.',
+};
 
 const BOOKING_STATUS_LABELS: Record<string, string> = {
   pending: 'Pending',
@@ -176,11 +188,11 @@ async function apiCall(
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
         console.error(`[API] Timeout after ${timeoutMs}ms`);
-        throw new Error('Cannot connect to server (timeout). Please check your connection and try again.');
+        throw new Error(MOBILE_MESSAGES.network);
       }
       throw error;
     }
-    throw new Error('Network request failed');
+    throw new Error(MOBILE_MESSAGES.network);
   }
 }
 
@@ -337,9 +349,11 @@ function isUnauthorizedError(error: unknown) {
 }
 
 async function parseError(response: Response) {
-  const fallback = `Request failed (${response.status})`;
+  const fallback = response.status >= 500 ? MOBILE_MESSAGES.server : `Request failed (${response.status})`;
   try {
     const data = await response.json();
+    if (response.status === 401) return MOBILE_MESSAGES.sessionExpired;
+    if (response.status === 403) return MOBILE_MESSAGES.unauthorized;
     if (typeof data?.error === 'string') return data.error;
     if (typeof data?.message === 'string') return data.message;
     if (typeof data?.detail === 'string') return data.detail;
@@ -458,7 +472,7 @@ async function fetchUserProfile(token: string) {
   } catch (error) {
     if (error instanceof Error) {
       if (error.name === 'AbortError') {
-        throw new Error('Cannot connect to server. Please check your connection.');
+        throw new Error(MOBILE_MESSAGES.network);
       }
       throw error;
     }
@@ -976,7 +990,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          throw new Error('Cannot connect to server. Please check your connection.');
+            throw new Error(MOBILE_MESSAGES.network);
         }
       }
       throw error;
@@ -1013,7 +1027,7 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       if (error instanceof Error) {
         if (error.name === 'AbortError') {
-          throw new Error('Cannot connect to server. Please check your connection.');
+            throw new Error(MOBILE_MESSAGES.network);
         }
       }
       throw error;
@@ -1052,7 +1066,21 @@ function AuthScreen({ mode, onSubmit, onSignupSuccess, onSwitch }: {
 
   const handleSubmit = async () => {
     if (!email.trim() || !password.trim() || (isSignup && !name.trim())) {
-      Alert.alert('Missing fields', 'Please complete all required fields.');
+      if (isSignup && !name.trim()) {
+        Alert.alert('Missing field', MOBILE_MESSAGES.fullNameRequired);
+        return;
+      }
+      if (!email.trim()) {
+        Alert.alert('Missing field', MOBILE_MESSAGES.emailRequired);
+        return;
+      }
+      Alert.alert('Missing field', MOBILE_MESSAGES.passwordRequired);
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      Alert.alert('Invalid email', MOBILE_MESSAGES.validEmail);
       return;
     }
 
@@ -1239,7 +1267,7 @@ function OTPVerificationScreen({ route, navigation }: any) {
 
   const handleVerify = async () => {
     if (!otp.trim() || otp.length < 4) {
-      Alert.alert('Invalid OTP', 'Please enter the OTP sent to your email.');
+      Alert.alert('Invalid OTP', MOBILE_MESSAGES.otpRequired);
       return;
     }
 
@@ -1264,7 +1292,7 @@ function OTPVerificationScreen({ route, navigation }: any) {
         [{ text: 'Login', onPress: () => navigation.navigate('Login') }]
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Verification failed.';
+      const message = error instanceof Error ? error.message : MOBILE_MESSAGES.otpExpired;
       Alert.alert('Error', message);
     } finally {
       setLoading(false);
@@ -1289,7 +1317,7 @@ function OTPVerificationScreen({ route, navigation }: any) {
 
       Alert.alert('OTP Sent', 'A new OTP has been sent to your email.');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not resend OTP.';
+      const message = error instanceof Error ? error.message : MOBILE_MESSAGES.server;
       Alert.alert('Error', message);
     } finally {
       setResending(false);

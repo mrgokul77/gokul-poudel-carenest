@@ -15,6 +15,7 @@ from .permissions import IsCaregiver
 from .utils import Util
 from accounts.models import UserProfile, CaregiverProfile
 import logging
+from backend.error_messages import ErrorMessages
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ class CaregiverDocumentUploadView(APIView):
         if not is_valid:
             return Response(
                 {
-                    "error": "Complete profile before submitting verification documents.",
+                    "error": ErrorMessages.COMPLETE_PROFILE_BEFORE_UPLOAD,
                     "missing_fields": missing_fields
                 },
                 status=status.HTTP_400_BAD_REQUEST
@@ -110,7 +111,7 @@ class CaregiverDocumentUploadView(APIView):
         missing = [f for f in required_fields if not request.data.get(f)]
         if missing:
             return Response(
-                {"error": f"Missing required documents: {', '.join(missing)}"},
+                {"error": ErrorMessages.FILE_REQUIRED},
                 status=status.HTTP_400_BAD_REQUEST
             )
 

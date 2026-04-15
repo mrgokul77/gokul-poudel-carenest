@@ -20,6 +20,7 @@ from bookings.models import Booking
 from notifications.utils import send_push_notification
 import resend
 from .utils import Util
+from backend.error_messages import ErrorMessages
 
 def get_tokens_for_user(user):
     # creating JWT tokens that the frontend stores and sends with each request
@@ -110,6 +111,14 @@ class UserLoginView(APIView):
             email = serializer.validated_data['email']
             password = serializer.validated_data['password']
 
+            try:
+                login_user = User.objects.get(email__iexact=email)
+            except User.DoesNotExist:
+                return Response(
+                    {"error": ErrorMessages.EMAIL_NOT_REGISTERED},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
             authenticated_user = authenticate(
                 request,
                 username=email,
@@ -120,7 +129,7 @@ class UserLoginView(APIView):
                 # not verified yet? can't log in unless they're an admin
                 if not authenticated_user.is_verified and authenticated_user.role != 'admin':
                     return Response(
-                        {"error": "Email not verified. Please verify OTP."},
+                        {"error": ErrorMessages.ACCOUNT_NOT_VERIFIED},
                         status=status.HTTP_403_FORBIDDEN
                     )
 
@@ -144,8 +153,8 @@ class UserLoginView(APIView):
                 )
 
             return Response(
-                {"error": "Email or password is incorrect"},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": ErrorMessages.WRONG_PASSWORD},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -238,7 +247,7 @@ class CaregiverProfileView(APIView):
         # only handles caregiver-specific stuff
         profile = self.get_object(request)
         if not profile:
-            return Response({"error": "Only caregivers can update this profile"}, status=403)
+            return Response({"error": ErrorMessages.UNAUTHORIZED}, status=403)
 
         serializer = CaregiverProfileSerializer(
             profile,

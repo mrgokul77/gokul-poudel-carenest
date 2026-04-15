@@ -3,6 +3,7 @@ import axios, {
   type AxiosInstance,
   type InternalAxiosRequestConfig,
 } from "axios";
+import { UIErrorMessages } from "../utils/apiErrors";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
 const REFRESH_URL = `${API_BASE_URL}/user/token/refresh/`;
@@ -125,6 +126,33 @@ function attach401Refresh(instance: AxiosInstance) {
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${access}`;
       return instance(config);
+    }
+  );
+}
+
+function attachErrorNormalization(instance: AxiosInstance) {
+  instance.interceptors.response.use(
+    (r) => r,
+    (error: AxiosError) => {
+      if (!error.response) {
+        (error as AxiosError & { normalizedMessage?: string }).normalizedMessage =
+          UIErrorMessages.networkError;
+        return Promise.reject(error);
+      }
+
+      const status = error.response.status;
+      if (status === 401) {
+        (error as AxiosError & { normalizedMessage?: string }).normalizedMessage =
+          UIErrorMessages.sessionExpired;
+      } else if (status === 403) {
+        (error as AxiosError & { normalizedMessage?: string }).normalizedMessage =
+          UIErrorMessages.unauthorized;
+      } else if (status >= 500) {
+        (error as AxiosError & { normalizedMessage?: string }).normalizedMessage =
+          UIErrorMessages.serverError;
+      }
+
+      return Promise.reject(error);
     }
   );
 }
@@ -352,5 +380,6 @@ const clientsWithRefresh: AxiosInstance[] = [
   complaintsApi,
 ];
 clientsWithRefresh.forEach(attach401Refresh);
+clientsWithRefresh.forEach(attachErrorNormalization);
 
 export default api;

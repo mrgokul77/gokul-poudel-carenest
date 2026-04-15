@@ -12,6 +12,7 @@ from .serializers import (
     PaymentListSerializer,
     KhaltiVerifySerializer,
 )
+from backend.error_messages import ErrorMessages
 
 
 class PaymentListView(APIView):
@@ -43,7 +44,7 @@ class InitiateKhaltiPaymentView(APIView):
         booking_id = request.data.get("booking_id")
         if booking_id is None:
             return Response(
-                {"error": "booking_id is required"},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -52,13 +53,13 @@ class InitiateKhaltiPaymentView(APIView):
             booking_id = int(booking_id)
         except (TypeError, ValueError):
             return Response(
-                {"error": "booking_id must be a valid integer"},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         if booking_id <= 0:
             return Response(
-                {"error": "booking_id must be a positive integer"},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -68,14 +69,14 @@ class InitiateKhaltiPaymentView(APIView):
             print(f"DEBUG - Booking found: ID={booking.id}, status={booking.status}, total_amount={booking.total_amount}")
         except Booking.DoesNotExist:
             return Response(
-                {"error": "Booking not found or you don't have permission to access it"},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_404_NOT_FOUND
             )
 
         # Payment only allowed when service is completed (pay-after-service)
         if booking.status != "completed":
             return Response(
-                {"error": f"Payment is only available after the service is completed. Current status: {booking.status}"},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -83,7 +84,7 @@ class InitiateKhaltiPaymentView(APIView):
         if not booking.total_amount or float(booking.total_amount) <= 0:
             print(f"DEBUG - Total amount check failed: {booking.total_amount}")
             return Response(
-                {"error": "Booking does not have a valid payment amount"},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -95,7 +96,7 @@ class InitiateKhaltiPaymentView(APIView):
             existing_payment = Payment.objects.get(booking=booking)
             if existing_payment.status == "completed":
                 return Response(
-                    {"error": "Payment already completed for this booking"},
+                    {"error": ErrorMessages.PAYMENT_ALREADY_PAID},
                     status=status.HTTP_400_BAD_REQUEST
                 )
         except Payment.DoesNotExist:
@@ -148,7 +149,7 @@ class InitiateKhaltiPaymentView(APIView):
         secret_key = getattr(settings, "KHALTI_SECRET_KEY", None)
         if not secret_key:
             return Response(
-                {"error": "Khalti secret key not configured. Set KHALTI_SECRET_KEY in .env."},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         headers = {
@@ -172,7 +173,7 @@ class InitiateKhaltiPaymentView(APIView):
                 response_data = response.json()
             except ValueError:
                 return Response(
-                    {"error": "Invalid response from Khalti", "raw_response": response.text},
+                    {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                     status=status.HTTP_502_BAD_GATEWAY
                 )
 
@@ -189,7 +190,7 @@ class InitiateKhaltiPaymentView(APIView):
             elif response.status_code == 401:
                 return Response(
                     {
-                        "error": "Khalti authentication failed. Please check your secret key.",
+                        "error": ErrorMessages.PAYMENT_INIT_FAILED,
                         "status_code": response.status_code,
                     },
                     status=status.HTTP_401_UNAUTHORIZED
@@ -199,7 +200,7 @@ class InitiateKhaltiPaymentView(APIView):
                 khalti_error = response_data.get("detail") or response_data.get("error_key") or response_data
                 return Response(
                     {
-                        "error": "Khalti payment initiation failed",
+                        "error": ErrorMessages.PAYMENT_INIT_FAILED,
                         "khalti_error": khalti_error,
                         "status_code": response.status_code,
                     },
@@ -208,7 +209,7 @@ class InitiateKhaltiPaymentView(APIView):
         except requests.RequestException as e:
             print(f"DEBUG - Request exception: {str(e)}")
             return Response(
-                {"error": f"Payment service error: {str(e)}"},
+                {"error": ErrorMessages.PAYMENT_INIT_FAILED},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
@@ -232,7 +233,7 @@ class VerifyKhaltiPaymentView(APIView):
             payment = Payment.objects.get(khalti_idx=pidx)
         except Payment.DoesNotExist:
             return Response(
-                {"error": "Payment not found"},
+                {"error": ErrorMessages.PAYMENT_VERIFY_FAILED},
                 status=status.HTTP_404_NOT_FOUND
             )
 
@@ -240,7 +241,7 @@ class VerifyKhaltiPaymentView(APIView):
         secret_key = getattr(settings, "KHALTI_SECRET_KEY", None)
         if not secret_key:
             return Response(
-                {"error": "Khalti secret key not configured. Set KHALTI_SECRET_KEY in .env."},
+                {"error": ErrorMessages.PAYMENT_VERIFY_FAILED},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         headers = {
@@ -287,22 +288,22 @@ class VerifyKhaltiPaymentView(APIView):
                     payment.status = "failed"
                     payment.save()
                     return Response(
-                        {"error": f"Payment {khalti_status.lower()}"},
+                        {"error": ErrorMessages.PAYMENT_VERIFY_FAILED},
                         status=status.HTTP_400_BAD_REQUEST
                     )
             elif response.status_code == 401:
                 return Response(
-                    {"error": "Khalti authentication failed. Please check your secret key.", "status_code": response.status_code},
+                    {"error": ErrorMessages.PAYMENT_VERIFY_FAILED, "status_code": response.status_code},
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             else:
                 return Response(
-                    {"error": "Failed to verify payment", "details": response_data},
+                    {"error": ErrorMessages.PAYMENT_VERIFY_FAILED, "details": response_data},
                     status=status.HTTP_400_BAD_REQUEST
                 )
         except requests.RequestException as e:
             return Response(
-                {"error": f"Payment verification error: {str(e)}"},
+                {"error": ErrorMessages.PAYMENT_VERIFY_FAILED},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE
             )
 
@@ -317,7 +318,7 @@ class PaymentStatusView(APIView):
             # Check if user is authorized (either the family or caregiver)
             if booking.family != request.user and booking.caregiver != request.user:
                 return Response(
-                    {"error": "Not authorized"},
+                    {"error": ErrorMessages.UNAUTHORIZED},
                     status=status.HTTP_403_FORBIDDEN
                 )
 
@@ -327,6 +328,6 @@ class PaymentStatusView(APIView):
                 return Response({"status": "no_payment"})
         except Booking.DoesNotExist:
             return Response(
-                {"error": "Booking not found"},
+                {"error": ErrorMessages.BOOKING_EXPIRED},
                 status=status.HTTP_404_NOT_FOUND
             )

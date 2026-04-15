@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.core.files.images import get_image_dimensions
+from backend.error_messages import ErrorMessages
 
 
 def validate_image_file(file):
@@ -9,15 +10,13 @@ def validate_image_file(file):
     Max size: 5MB
     """
     if not file:
-        raise ValidationError("Image file is required")
+        raise ValidationError(ErrorMessages.FILE_REQUIRED)
     
     # Check file size (5MB = 5 * 1024 * 1024 bytes)
     max_size = 5 * 1024 * 1024
     try:
         if file.size > max_size:
-            raise ValidationError(
-                f"Image file size must be less than 5MB. Current size: {file.size / (1024 * 1024):.2f}MB"
-            )
+            raise ValidationError(ErrorMessages.DOCUMENT_TOO_LARGE)
     except FileNotFoundError:
         # File no longer exists on disk (e.g. after Render restart)
         # Skip size validation — file path is already stored in DB
@@ -28,16 +27,14 @@ def validate_image_file(file):
     file_name = file.name.lower()
     
     if not any(file_name.endswith(ext) for ext in allowed_extensions):
-        raise ValidationError(
-            f"Invalid file type. Allowed types: JPEG, PNG, WebP. Got: {file_name}"
-        )
+        raise ValidationError(ErrorMessages.DOCUMENT_INVALID_TYPE)
     
     # Validate that it's actually an image
     try:
         # This will raise an exception if the file is not a valid image
         get_image_dimensions(file)
     except Exception:
-        raise ValidationError("File is not a valid image")
+        raise ValidationError(ErrorMessages.DOCUMENT_INVALID_TYPE)
     
     return file
 
@@ -49,15 +46,13 @@ def validate_document_file(file):
     Max size: 5MB
     """
     if not file:
-        raise ValidationError("Document file is required")
+        raise ValidationError(ErrorMessages.FILE_REQUIRED)
     
     # Check file size (5MB = 5 * 1024 * 1024 bytes)
     max_size = 5 * 1024 * 1024
     try:
         if file.size > max_size:
-            raise ValidationError(
-                f"File size must be less than 5MB. Current size: {file.size / (1024 * 1024):.2f}MB"
-            )
+            raise ValidationError(ErrorMessages.DOCUMENT_TOO_LARGE)
     except FileNotFoundError:
         # File no longer exists on disk (e.g. after Render restart)
         # Skip size validation — file path is already stored in DB
@@ -68,15 +63,13 @@ def validate_document_file(file):
     file_name = file.name.lower()
     
     if not any(file_name.endswith(ext) for ext in allowed_extensions):
-        raise ValidationError(
-            f"Invalid file type. Allowed types: PDF, JPEG, PNG. Got: {file_name}"
-        )
+        raise ValidationError(ErrorMessages.DOCUMENT_INVALID_TYPE)
     
     # For image files, validate that it's actually an image
     if not file_name.endswith('.pdf'):
         try:
             get_image_dimensions(file)
         except Exception:
-            raise ValidationError("File is not a valid image")
+            raise ValidationError(ErrorMessages.DOCUMENT_INVALID_TYPE)
     
     return file
