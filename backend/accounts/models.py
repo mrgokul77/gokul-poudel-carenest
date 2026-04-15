@@ -106,10 +106,12 @@ class CaregiverProfile(models.Model):
 
 class Emergency(models.Model):
     STATUS_PENDING = "pending"
+    STATUS_NOTIFIED = "notified"
     STATUS_IN_PROGRESS = "in_progress"
     STATUS_RESOLVED = "resolved"
     STATUS_CHOICES = (
         (STATUS_PENDING, "Pending"),
+        (STATUS_NOTIFIED, "Notified"),
         (STATUS_IN_PROGRESS, "In Progress"),
         (STATUS_RESOLVED, "Resolved"),
     )

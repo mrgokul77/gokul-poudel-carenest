@@ -14,5 +14,7 @@ class Util:
                 "html": f"<p>{data['body']}</p>"
             })
             print("✅ Email sent via Resend")
+            return True
         except Exception as e:
             print("Email failed:", str(e))
+            return False

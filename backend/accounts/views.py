@@ -19,6 +19,7 @@ from django.conf import settings
 from bookings.models import Booking
 from notifications.utils import send_push_notification
 import resend
+from .utils import Util
 
 def get_tokens_for_user(user):
     # creating JWT tokens that the frontend stores and sends with each request
@@ -782,6 +783,9 @@ class EmergencyNotifyCaregiverView(APIView):
         except Emergency.DoesNotExist:
             return Response({"error": "Emergency not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        if emergency.status == Emergency.STATUS_RESOLVED:
+            return Response({"error": "Resolved emergencies cannot be notified"}, status=status.HTTP_400_BAD_REQUEST)
+
         booking = emergency.booking
         caregiver = booking.caregiver if booking and booking.caregiver_id else None
         if not caregiver:
@@ -797,32 +801,53 @@ class EmergencyNotifyCaregiverView(APIView):
 
         subject = "⚠ Emergency Alert - Action Required | CareNest"
         triggered_time = timezone.localtime(emergency.created_at).strftime("%b %d, %Y %I:%M %p")
+        helpline_number = "01-5551234"
+        booking_details = [
+            f"Booking ID: {emergency.booking_id or 'N/A'}",
+            f"Booking Status: {getattr(booking, 'status', None) or 'N/A'}",
+            f"Service: {getattr(booking, 'service_type', None) or getattr(booking, 'service_name', None) or 'N/A'}",
+            f"Date: {getattr(booking, 'date', None) or 'N/A'}",
+            f"Start Time: {getattr(booking, 'start_time', None) or 'N/A'}",
+            f"Address: {getattr(booking, 'service_address', None) or 'N/A'}",
+        ]
 
-        body = (
-            f"Dear {caregiver.username},\n\n"
-            f"A careseeker under your care, {emergency.careseeker.username}, \n"
-            f"has triggered an emergency alert at {triggered_time}.\n\n"
-            "Please check on them immediately and contact \n"
-            "the admin if further assistance is needed.\n\n"
-            f"Booking ID: {emergency.booking_id or 'N/A'}\n"
-            f"Careseeker Phone: {careseeker_phone}\n\n"
-            "Regards,\n"
-            "CareNest Admin Team"
-        )
+        email_body = [
+            f"Dear {caregiver.username},",
+            "",
+            f"A careseeker under your care, {emergency.careseeker.username}, has triggered an emergency alert at {triggered_time}.",
+            "",
+            "Please check on them immediately and contact the admin if further assistance is needed.",
+            "",
+            "Booking Details:",
+            *booking_details,
+            "",
+            f"Careseeker Phone: {careseeker_phone}",
+            f"CareNest Help Team: {helpline_number}",
+        ]
 
         if message_override:
-            body = f"{body}\n\nAdmin Message:\n{message_override}"
+            email_body.extend(["", "Admin Message:", message_override])
 
-        
+        email_sent = Util.send_email({
+            "to_email": caregiver_email,
+            "subject": subject,
+            "body": "<br>".join(email_body),
+        })
 
-        resend.Emails.send({
-    "from": "CareNest <noreply@carenestapp.me>",
-    "to": [caregiver_email],
-    "subject": subject,
-    "text": body
-})
+        if not email_sent:
+            return Response({"error": "Failed to send caregiver email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response({"message": "Caregiver notified via email"}, status=status.HTTP_200_OK)
+        if emergency.status == Emergency.STATUS_PENDING:
+            emergency.status = Emergency.STATUS_NOTIFIED
+            emergency.save(update_fields=["status", "updated_at"])
+
+        return Response(
+            {
+                "message": "Caregiver notified via email",
+                "emergency": EmergencySerializer(emergency, context={"request": request}).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def post(self, request, pk):
         return self._notify(request, pk)
@@ -847,7 +872,9 @@ class UserActivityView(APIView):
 
         summary = {
             "total_emergencies_today": Emergency.objects.filter(created_at__date=today).count(),
-            "active_emergencies": Emergency.objects.filter(status__in=[Emergency.STATUS_PENDING, Emergency.STATUS_IN_PROGRESS]).count(),
+            "active_emergencies": Emergency.objects.filter(
+                status__in=[Emergency.STATUS_PENDING, Emergency.STATUS_NOTIFIED, Emergency.STATUS_IN_PROGRESS]
+            ).count(),
             "careseeker_mobile_logins_today": UserActivity.objects.filter(
                 activity_type=UserActivity.ACTIVITY_MOBILE_LOGIN,
                 created_at__date=today,

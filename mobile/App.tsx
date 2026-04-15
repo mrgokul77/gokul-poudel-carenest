@@ -81,6 +81,54 @@ function getBookingDateTimeLabel(booking: AssignedBooking) {
   return `${dateLabel} at ${timeLabel}`;
 }
 
+function getRoleDisplayLabel(role?: string | null) {
+  const normalized = normalizeRole(role);
+  return normalized === 'caregiver' ? 'Caregiver' : 'Careseeker';
+}
+
+function getBookingTimestamp(booking: AssignedBooking) {
+  if (booking.date) {
+    const candidate = booking.start_time ? `${booking.date}T${booking.start_time}` : booking.date;
+    const parsed = new Date(candidate).getTime();
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  if (booking.created_at) {
+    const parsed = new Date(booking.created_at).getTime();
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return booking.id;
+}
+
+function getMostRecentBooking(bookings: AssignedBooking[]) {
+  if (!bookings.length) return null;
+
+  return [...bookings].sort((a, b) => getBookingTimestamp(b) - getBookingTimestamp(a))[0];
+}
+
+function getBookingPriceLabel(booking: AssignedBooking) {
+  const amount = booking.total_amount;
+
+  if (typeof amount === 'number') {
+    return `Rs ${amount.toLocaleString('en-IN')}`;
+  }
+
+  if (typeof amount === 'string' && amount.trim()) {
+    const numeric = Number(amount);
+    if (!Number.isNaN(numeric)) {
+      return `Rs ${numeric.toLocaleString('en-IN')}`;
+    }
+    return amount;
+  }
+
+  return 'Price N/A';
+}
+
 /**
  * Wrapper for fetch with timeout handling and logging
  */
@@ -196,6 +244,7 @@ type AssignedBooking = {
   caregiver?: number;
   has_review?: boolean;
   review_rating?: number | null;
+  created_at?: string;
   family_name?: string;
   caregiver_name?: string;
   person_name?: string;
@@ -207,6 +256,7 @@ type AssignedBooking = {
   duration_hours?: number;
   service_address?: string;
   status: string;
+  total_amount?: string | number | null;
   check_in_time?: string | null;
   check_out_time?: string | null;
   proof_image?: string | null;
@@ -1315,7 +1365,6 @@ function CaregiverDashboardScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [bookings, setBookings] = useState<AssignedBooking[]>([]);
-  const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'accepted' | 'in_progress' | 'awaiting_confirmation' | 'completed'>('all');
 
   const loadBookings = useCallback(async () => {
     if (!token) return;
@@ -1352,25 +1401,26 @@ function CaregiverDashboardScreen({ navigation }: any) {
     return () => clearInterval(intervalId);
   }, [loadBookings]);
 
-  const statusFilterOptions: Array<{
-    key: 'all' | 'pending' | 'accepted' | 'in_progress' | 'awaiting_confirmation' | 'completed';
-    label: string;
-  }> = [
-    { key: 'all', label: 'All' },
-    { key: 'pending', label: 'Pending' },
-    { key: 'accepted', label: 'Accepted' },
-    { key: 'in_progress', label: 'In Progress' },
-    { key: 'awaiting_confirmation', label: 'Awaiting Confirmation' },
-    { key: 'completed', label: 'Completed' },
-  ];
+  const stats = useMemo(() => {
+    const activeBookings = bookings.filter((booking) => (
+      booking.status === 'accepted' ||
+      booking.status === 'in_progress' ||
+      booking.status === 'awaiting_confirmation' ||
+      booking.status === 'completion_requested'
+    )).length;
 
-  const filteredBookings = bookings.filter((booking) => {
-    if (selectedStatus === 'all') return true;
-    if (selectedStatus === 'awaiting_confirmation') {
-      return booking.status === 'awaiting_confirmation' || booking.status === 'completion_requested';
-    }
-    return booking.status === selectedStatus;
-  });
+    const pendingRequests = bookings.filter((booking) => booking.status === 'pending').length;
+    const completedServices = bookings.filter((booking) => booking.status === 'completed').length;
+
+    return [
+      { label: 'Active Bookings', value: activeBookings, icon: 'briefcase-outline' as const, iconColor: '#3b82f6' },
+      { label: 'Pending Requests', value: pendingRequests, icon: 'time-outline' as const, iconColor: '#f97316' },
+      { label: 'Completed Services', value: completedServices, icon: 'checkmark-done-outline' as const, iconColor: '#16a34a' },
+      { label: 'Total Care Sessions', value: bookings.length, icon: 'layers-outline' as const, iconColor: '#22c55e' },
+    ];
+  }, [bookings]);
+
+  const recentBooking = useMemo(() => getMostRecentBooking(bookings), [bookings]);
 
   const loadingState = (
     <View
@@ -1471,114 +1521,83 @@ function CaregiverDashboardScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
-        data={bookings}
-        keyExtractor={(item) => String(item.id)}
+        data={[]}
+        keyExtractor={(item, index) => `${index}`}
         refreshing={loading}
         onRefresh={loadBookings}
         renderItem={() => null}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          backgroundColor: '#f0fdf4',
-          paddingHorizontal: 16,
-          paddingBottom: 24,
-          flexGrow: 1,
-        }}
+        contentContainerStyle={styles.dashboardContainer}
         ListHeaderComponent={
-          <View style={{ backgroundColor: '#f0fdf4', paddingTop: 8, paddingBottom: 16 }}>
-            <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
+          <View style={styles.dashboardHomeWrap}>
+            <View style={styles.dashboardTopRow}>
               <View>
-                <Text
-                  style={{
-                    fontSize: 22,
-                    fontWeight: '700',
-                    color: '#1e3a5f',
-                  }}
-                >
-                  Hello, {user?.name ?? 'Caregiver'} 👋
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    color: '#64748b',
-                    marginTop: 2,
-                  }}
-                >
-                  Your assigned bookings
-                </Text>
+                <Text style={styles.dashboardGreeting}>Hello, {user?.name ?? 'Caregiver'}</Text>
+                <Text style={styles.dashboardRoleText}>Role: {getRoleDisplayLabel(user?.role)}</Text>
               </View>
-              <Pressable onPress={logout}>
-                <Ionicons name="log-out-outline" size={24} color="#1e3a5f" />
+              <Pressable onPress={logout} style={styles.dashboardLogoutIconWrap}>
+                <Ionicons name="log-out-outline" size={22} color="#1e3a5f" />
               </Pressable>
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.statusFilterRow}
-            >
-              {statusFilterOptions.map((option) => {
-                const isSelected = option.key === selectedStatus;
-                return (
-                  <Pressable
-                    key={option.key}
-                    onPress={() => setSelectedStatus(option.key)}
-                    style={[styles.statusFilterChip, isSelected && styles.statusFilterChipActive]}
-                  >
-                    <Text style={[styles.statusFilterChipText, isSelected && styles.statusFilterChipTextActive]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-
-            <View style={{ gap: 8 }}>
-              {filteredBookings.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={styles.polishedBookingCard}
-                  onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
-                >
-                  <View style={styles.polishedBookingHeader}>
-                    <Text style={styles.polishedBookingTitle}>Careseeker: {item.family_name ?? 'Unknown'}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}> 
-                      <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
+            <View style={styles.statsGrid}>
+              {stats.map((card) => (
+                <View key={card.label} style={styles.statCard}>
+                  <View style={styles.statCardRow}>
+                    <View style={styles.statIconWrap}>
+                      <Ionicons name={card.icon} size={20} color={card.iconColor} />
+                    </View>
+                    <View style={styles.statTextWrap}>
+                      <Text style={styles.statValue}>{card.value}</Text>
+                      <Text style={styles.statLabel}>{card.label}</Text>
                     </View>
                   </View>
-
-                  <View style={styles.bookingDetailSection}>
-                    <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
-                    <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(item)}</Text>
-                  </View>
-
-                  <View style={styles.bookingDetailSection}>
-                    <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
-                    <Text style={styles.bookingDetailValue}>{getBookingServiceType(item)}</Text>
-                  </View>
-
-                  <View style={styles.bookingDetailSection}>
-                    <Text style={styles.bookingDetailLabel}>DURATION</Text>
-                    <Text style={styles.bookingDetailValue}>{item.duration_hours ?? 'N/A'} hours</Text>
-                  </View>
-
-                  {item.check_in_time ? (
-                    <Text style={styles.bookingCheckInText}>Checked in at {new Date(item.check_in_time).toLocaleTimeString()}</Text>
-                  ) : null}
-                </Pressable>
+                </View>
               ))}
             </View>
 
-            {filteredBookings.length === 0 ? (
-              <Text style={{ color: '#64748b', fontSize: 14, marginTop: 12 }}>
-                No bookings found for the selected status.
-              </Text>
+            <View style={styles.recentHeaderRow}>
+              <Text style={styles.recentHeading}>Recent Bookings</Text>
+              <Pressable onPress={() => navigation.getParent()?.navigate('Booking Requests')}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </Pressable>
+            </View>
+
+            {loading && bookings.length > 0 ? (
+              <ActivityIndicator color="#22c55e" />
             ) : null}
+
+            {recentBooking ? (
+              <Pressable
+                style={styles.recentBookingCard}
+                onPress={() => navigation.navigate('BookingDetail', { bookingId: recentBooking.id })}
+              >
+                <View style={styles.polishedBookingHeader}>
+                  <Text style={styles.polishedBookingTitle}>Careseeker: {recentBooking.family_name ?? 'Unknown'}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(recentBooking.status) }]}> 
+                    <Text style={styles.statusBadgeText}>{getStatusLabel(recentBooking.status)}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.bookingDetailSection}>
+                  <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
+                  <Text style={styles.bookingDetailValue}>{getBookingServiceType(recentBooking)}</Text>
+                </View>
+
+                <View style={styles.bookingDetailSection}>
+                  <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
+                  <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(recentBooking)}</Text>
+                </View>
+
+                <View style={styles.recentBookingFooter}>
+                  <Text style={styles.recentPriceText}>{getBookingPriceLabel(recentBooking)}</Text>
+                </View>
+              </Pressable>
+            ) : (
+              <View style={styles.recentEmptyCard}>
+                <Text style={styles.mutedText}>No recent bookings found.</Text>
+              </View>
+            )}
           </View>
         }
       />
@@ -1917,7 +1936,7 @@ function BookingDetailScreen({ route, navigation }: any) {
             ) : null}
 
             {booking.status === 'awaiting_confirmation' || booking.status === 'completion_requested' ? (
-              <View style={{ backgroundColor: '#fff7ed', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#fed7aa' }}>
+              <View style={{ backgroundColor: '#f0fdf4', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#fed7aa' }}>
                 <Text style={{ color: '#9a3412', fontSize: 13, fontWeight: '700' }}>Awaiting Confirmation</Text>
                 <Text style={{ color: '#9a3412', fontSize: 13, marginTop: 4 }}>
                   The service is complete and the careseeker needs to confirm it.
@@ -2051,97 +2070,110 @@ function CareseekerDashboardScreen({ navigation }: any) {
     return () => clearInterval(intervalId);
   }, [loadBookings]);
 
+  const stats = useMemo(() => {
+    const activeBookings = bookings.filter((booking) => (
+      booking.status === 'accepted' ||
+      booking.status === 'in_progress' ||
+      booking.status === 'awaiting_confirmation' ||
+      booking.status === 'completion_requested'
+    )).length;
+
+    const pendingRequests = bookings.filter((booking) => booking.status === 'pending').length;
+    const completedServices = bookings.filter((booking) => booking.status === 'completed').length;
+
+    return [
+      { label: 'Active Bookings', value: activeBookings, icon: 'briefcase-outline' as const, iconColor: '#3b82f6' },
+      { label: 'Pending Requests', value: pendingRequests, icon: 'time-outline' as const, iconColor: '#f97316' },
+      { label: 'Completed Services', value: completedServices, icon: 'checkmark-done-outline' as const, iconColor: '#16a34a' },
+      { label: 'Total Care Sessions', value: bookings.length, icon: 'layers-outline' as const, iconColor: '#22c55e' },
+    ];
+  }, [bookings]);
+
+  const recentBooking = useMemo(() => getMostRecentBooking(bookings), [bookings]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.homeHeader}>
-        <Image
-          source={require('./assets/carenest-logo.png')}
-          style={styles.homeHeaderLogo}
-          resizeMode="contain"
-        />
-        <Pressable style={styles.headerLogoutButton} onPress={logout}>
-          <Ionicons name="log-out-outline" size={24} color="#1e3a5f" />
-        </Pressable>
-      </View>
+      <FlatList
+        data={[]}
+        keyExtractor={(item, index) => `${index}`}
+        refreshing={loading}
+        onRefresh={loadBookings}
+        renderItem={() => null}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.dashboardContainer}
+        ListHeaderComponent={
+          <View style={styles.dashboardHomeWrap}>
+            <View style={styles.dashboardTopRow}>
+              <View>
+                <Text style={styles.dashboardGreeting}>Hello, {user?.name ?? 'Guest'}</Text>
+                <Text style={styles.dashboardRoleText}>Role: {getRoleDisplayLabel(user?.role)}</Text>
+              </View>
+              <Pressable onPress={logout} style={styles.dashboardLogoutIconWrap}>
+                <Ionicons name="log-out-outline" size={22} color="#1e3a5f" />
+              </Pressable>
+            </View>
 
-      <View style={styles.careseekerContainer}>
-        <Text style={styles.careseekerGreeting}>Hello, {user?.name ?? 'Guest'} 👋</Text>
-
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Recent Bookings</Text>
-          {loading ? (
-            <ActivityIndicator color="#22c55e" />
-          ) : bookings.length === 0 ? (
-            <Text style={styles.mutedText}>No bookings found.</Text>
-          ) : (
-            <FlatList
-              data={bookings}
-              keyExtractor={(item) => String(item.id)}
-              scrollEnabled={false}
-              renderItem={({ item }) => (
-                <View style={styles.bookingCard}>
-                  <Pressable
-                    style={styles.bookingCardMain}
-                    onPress={() => navigation.navigate('BookingDetail', { bookingId: item.id })}
-                  >
-                    <View style={styles.polishedBookingHeader}>
-                      <Text style={styles.polishedBookingTitle}>Caregiver: {item.caregiver_name ?? 'Unknown'}</Text>
-                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-                        <Text style={styles.statusBadgeText}>{getStatusLabel(item.status)}</Text>
-                      </View>
+            <View style={styles.statsGrid}>
+              {stats.map((card) => (
+                <View key={card.label} style={styles.statCard}>
+                  <View style={styles.statCardRow}>
+                    <View style={styles.statIconWrap}>
+                      <Ionicons name={card.icon} size={20} color={card.iconColor} />
                     </View>
-
-                    <View style={styles.bookingDetailSection}>
-                      <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
-                      <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(item)}</Text>
+                    <View style={styles.statTextWrap}>
+                      <Text style={styles.statValue}>{card.value}</Text>
+                      <Text style={styles.statLabel}>{card.label}</Text>
                     </View>
-
-                    <View style={styles.bookingDetailSection}>
-                      <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
-                      <Text style={styles.bookingDetailValue}>{getBookingServiceType(item)}</Text>
-                    </View>
-
-                    <View style={styles.bookingDetailSection}>
-                      <Text style={styles.bookingDetailLabel}>CARESEEKER</Text>
-                      <Text style={styles.bookingDetailValue}>{item.family_name ?? user?.name ?? 'You'}</Text>
-                    </View>
-
-                    <Text style={styles.listSubtitle}>{getCareseekerBookingStatusText(item)}</Text>
-                    {item.status === 'in_progress' ? (
-                      <View style={styles.inProgressRow}>
-                        <PulsingDot />
-                        <Text style={styles.inProgressText}>Live tracking active</Text>
-                      </View>
-                    ) : null}
-                  </Pressable>
-
-                  {item.status === 'in_progress' ? (
-                    <EmergencyAlertButton
-                      subtitle="Tap only in case of emergency"
-                      onPress={() => {
-                        if (!token) {
-                          Alert.alert('Auth required', 'Please login again to trigger an emergency.');
-                          return;
-                        }
-
-                        promptEmergencyConfirmation(async () => {
-                          try {
-                            await triggerEmergency(token, item.id);
-                            Alert.alert('Success', 'Emergency alert sent. Help is on the way.');
-                          } catch (error) {
-                            const message = error instanceof Error ? error.message : 'Unable to trigger emergency.';
-                            Alert.alert('SOS Error', message);
-                          }
-                        });
-                      }}
-                    />
-                  ) : null}
+                  </View>
                 </View>
-              )}
-            />
-          )}
-        </View>
-      </View>
+              ))}
+            </View>
+
+            <View style={styles.recentHeaderRow}>
+              <Text style={styles.recentHeading}>Recent Bookings</Text>
+              <Pressable onPress={() => navigation.getParent()?.navigate('My Bookings')}>
+                <Text style={styles.viewAllText}>View All</Text>
+              </Pressable>
+            </View>
+
+            {loading && bookings.length > 0 ? (
+              <ActivityIndicator color="#22c55e" />
+            ) : null}
+
+            {recentBooking ? (
+              <Pressable
+                style={styles.recentBookingCard}
+                onPress={() => navigation.navigate('BookingDetail', { bookingId: recentBooking.id })}
+              >
+                <View style={styles.polishedBookingHeader}>
+                  <Text style={styles.polishedBookingTitle}>Caregiver: {recentBooking.caregiver_name ?? 'Unknown'}</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(recentBooking.status) }]}> 
+                    <Text style={styles.statusBadgeText}>{getStatusLabel(recentBooking.status)}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.bookingDetailSection}>
+                  <Text style={styles.bookingDetailLabel}>SERVICE TYPE</Text>
+                  <Text style={styles.bookingDetailValue}>{getBookingServiceType(recentBooking)}</Text>
+                </View>
+
+                <View style={styles.bookingDetailSection}>
+                  <Text style={styles.bookingDetailLabel}>DATE & TIME</Text>
+                  <Text style={styles.bookingDetailValue}>{getBookingDateTimeLabel(recentBooking)}</Text>
+                </View>
+
+                <View style={styles.recentBookingFooter}>
+                  <Text style={styles.recentPriceText}>{getBookingPriceLabel(recentBooking)}</Text>
+                </View>
+              </Pressable>
+            ) : (
+              <View style={styles.recentEmptyCard}>
+                <Text style={styles.mutedText}>No recent bookings found.</Text>
+              </View>
+            )}
+          </View>
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -2154,10 +2186,8 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   const [updating, setUpdating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [caregiverLocation, setCaregiverLocation] = useState<Coordinates | null>(null);
-  const [selfLocation, setSelfLocation] = useState<Coordinates | null>(null);
   const [caregiverUpdatedAt, setCaregiverUpdatedAt] = useState<string | null>(null);
   const [locationClockMs, setLocationClockMs] = useState(Date.now());
-  const [distance, setDistance] = useState<number | null>(null);
   const [showFullImage, setShowFullImage] = useState(false);
   const [showRating, setShowRating] = useState(false);
   const [rating, setRating] = useState(0);
@@ -2165,7 +2195,6 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
   const [submittingRating, setSubmittingRating] = useState(false);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const [reviewExists, setReviewExists] = useState(false);
-  const mapRef = useRef<MapView | null>(null);
 
   const now = new Date();
   const bookedDateTime = booking ? getBookingStartDateTime(booking) : null;
@@ -2178,8 +2207,18 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
       now >= new Date(new Date(booking.check_in_time).getTime() + booking.duration_hours * 60 * 60 * 1000),
   );
   const statusUpdating = updating;
+  const caregiverMapRegion = caregiverLocation
+    ? {
+        latitude: caregiverLocation.latitude,
+        longitude: caregiverLocation.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }
+    : null;
   const isLocationSharing = Boolean(booking?.status === 'in_progress' && caregiverLocation);
   const proofImageUrl = resolveProofImageUrl(booking?.proof_image);
+  const hasProofImage = Boolean(proofImageUrl);
+  const proofImageSource = proofImageUrl ? { uri: proofImageUrl } : undefined;
   const isCaregiverViewer = normalizeRole(user?.role) === 'caregiver';
 
   const cardStyle = {
@@ -2293,7 +2332,6 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
     if (!booking || booking.status !== 'in_progress') {
       setCaregiverLocation(null);
       setCaregiverUpdatedAt(null);
-      setDistance(null);
       return;
     }
 
@@ -2302,34 +2340,6 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
 
     return () => clearInterval(intervalId);
   }, [booking?.status, booking?.id, loadLiveLocation]);
-
-  useEffect(() => {
-    if (!booking || booking.status !== 'in_progress' || selfLocation) {
-      return;
-    }
-
-    const fetchSelfLocation = async () => {
-      try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (permission.status !== 'granted') {
-          return;
-        }
-
-        const currentLocation = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-
-        setSelfLocation({
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-        });
-      } catch (error) {
-        console.log('Self location fetch failed', error);
-      }
-    };
-
-    fetchSelfLocation();
-  }, [booking?.status, selfLocation]);
 
   useEffect(() => {
     if (!booking || booking.status !== 'in_progress') {
@@ -2342,25 +2352,6 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
 
     return () => clearInterval(intervalId);
   }, [booking?.status]);
-
-  useEffect(() => {
-    if (!mapRef.current || !caregiverLocation || !selfLocation) {
-      return;
-    }
-
-    const dist = getDistanceKm(
-      selfLocation.latitude,
-      selfLocation.longitude,
-      caregiverLocation.latitude,
-      caregiverLocation.longitude,
-    );
-    setDistance(dist);
-
-    mapRef.current.fitToCoordinates([caregiverLocation, selfLocation], {
-      edgePadding: { top: 40, right: 40, bottom: 40, left: 40 },
-      animated: true,
-    });
-  }, [caregiverLocation, selfLocation]);
 
   useEffect(() => {
     if (!token || !booking || booking.status !== 'completed') {
@@ -2829,17 +2820,17 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               </View>
             ) : null}
 
-            {proofImageUrl ? (
+            {hasProofImage ? (
               <View style={cardStyle}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b', letterSpacing: 1 }}>📷 PROOF</Text>
                 <Pressable onPress={() => setShowFullImage(true)}>
-                  <Image source={{ uri: proofImageUrl }} style={styles.previewImage} resizeMode="cover" />
+                  <Image source={proofImageSource} style={styles.previewImage} resizeMode="cover" />
                   <Text style={{ color: '#64748b', fontSize: 14, marginTop: 6 }}>Tap to view full screen</Text>
                 </Pressable>
               </View>
             ) : null}
 
-            {booking.status === 'in_progress' && caregiverLocation ? (
+            {booking.status === 'in_progress' && caregiverLocation && caregiverMapRegion ? (
               <View style={styles.liveLocationPanel}>
                 <View style={styles.liveLocationHeader}>
                   <View style={styles.locationSharingDot} />
@@ -2848,22 +2839,16 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
                 <Text style={styles.liveLocationUpdatedText}>{caregiverUpdatedLabel}</Text>
 
                 <MapView
-                  ref={(ref) => {
-                    mapRef.current = ref;
-                  }}
                   style={styles.liveLocationMap}
                   initialRegion={{
-                    latitude: caregiverLocation.latitude,
-                    longitude: caregiverLocation.longitude,
-                    latitudeDelta: 0.01,
-                    longitudeDelta: 0.01,
+                    ...caregiverMapRegion,
                   }}
+                  region={caregiverMapRegion}
                   scrollEnabled={false}
                   zoomEnabled={false}
                   rotateEnabled={false}
                   pitchEnabled={false}
                 >
-                  {selfLocation ? <Marker coordinate={selfLocation} title="You" /> : null}
                   <Marker coordinate={caregiverLocation} title="Your Caregiver" />
                 </MapView>
               </View>
@@ -2872,7 +2857,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
             {booking.status === 'in_progress' ? (
               <View
                 style={{
-                  backgroundColor: '#fff7ed',
+                  backgroundColor: '#f0fdf4',
                   borderRadius: 12,
                   padding: 16,
                   gap: 12,
@@ -2896,7 +2881,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
         ) : null}
       </ScrollView>
 
-      {showFullImage && proofImageUrl ? (
+      {showFullImage && proofImageSource ? (
         <Modal visible={showFullImage} transparent>
           <View
             style={{
@@ -2919,7 +2904,7 @@ function CareseekerBookingDetailScreen({ route, navigation }: any) {
               <Text style={{ color: '#ffffff', fontSize: 18, fontWeight: '700' }}>✕ Close</Text>
             </Pressable>
             <Image
-              source={{ uri: proofImageUrl }}
+              source={proofImageSource}
               style={{ width: '100%', height: '80%' }}
               resizeMode="contain"
             />
@@ -3676,6 +3661,126 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#64748b',
     marginTop: 2,
+  },
+  dashboardContainer: {
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    flexGrow: 1,
+  },
+  dashboardHomeWrap: {
+    paddingTop: 8,
+    gap: 14,
+  },
+  dashboardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  dashboardGreeting: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1e3a5f',
+  },
+  dashboardRoleText: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  dashboardLogoutIconWrap: {
+    padding: 4,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -6,
+  },
+  statCard: {
+    width: '50%',
+    paddingHorizontal: 6,
+    marginBottom: 12,
+  },
+  statCardRow: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 86,
+  },
+  statIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#f0fdf4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statTextWrap: {
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  statLabel: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#4b5563',
+    fontWeight: '500',
+  },
+  recentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  recentHeading: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1f2937',
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#16a34a',
+  },
+  recentBookingCard: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 12,
+    gap: 10,
+    shadowColor: '#0f172a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  recentBookingFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  recentPriceText: {
+    color: '#166534',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  recentEmptyCard: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 14,
   },
   careseekerContainer: {
     backgroundColor: '#f0fdf4',

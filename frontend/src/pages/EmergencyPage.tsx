@@ -3,7 +3,7 @@ import { RefreshCw } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { emergencyApi } from "../api/axios";
 
-type EmergencyStatus = "pending" | "in_progress" | "resolved";
+type EmergencyStatus = "pending" | "notified" | "in_progress" | "resolved";
 type EmergencyTab = "active" | "resolved";
 
 type ToastState = {
@@ -29,6 +29,7 @@ interface EmergencyItem {
 
 const EMERGENCY_STATUS_META: Record<EmergencyStatus, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-red-100 text-red-800 border-red-200" },
+  notified: { label: "Notified", className: "bg-blue-100 text-blue-800 border-blue-200" },
   in_progress: { label: "In Progress", className: "bg-orange-100 text-orange-800 border-orange-200" },
   resolved: { label: "Resolved", className: "bg-green-100 text-green-800 border-green-200" },
 };
@@ -98,16 +99,17 @@ export default function EmergencyPage() {
   const visibleEmergencies = tab === "active" ? activeEmergencies : resolvedEmergencies;
 
   const handleNotifyCaregiver = async (emergency: EmergencyItem) => {
-    if (notifiedIds.includes(emergency.id)) {
+    if (notifiedIds.includes(emergency.id) || emergency.status === "notified") {
       return;
     }
 
     setNotifyingId(emergency.id);
     try {
-      await emergencyApi.post(`${emergency.id}/notify-caregiver/`, {
+      await emergencyApi.patch(`${emergency.id}/notify-caregiver/`, {
         message: DEFAULT_NOTIFY_MESSAGE,
       });
       setNotifiedIds((current) => Array.from(new Set([...current, emergency.id])));
+      await loadData();
       setToast({ type: "success", message: "Caregiver notified via email ✓" });
     } catch {
       setToast({ type: "error", message: "Failed to notify caregiver" });
@@ -196,7 +198,7 @@ export default function EmergencyPage() {
               <tbody className="divide-y divide-gray-200">
                 {visibleEmergencies.map((emergency, index) => {
                   const meta = EMERGENCY_STATUS_META[emergency.status] ?? EMERGENCY_STATUS_META.pending;
-                  const alreadyNotified = notifiedIds.includes(emergency.id);
+                  const alreadyNotified = notifiedIds.includes(emergency.id) || emergency.status === "notified";
 
                   return (
                     <tr
