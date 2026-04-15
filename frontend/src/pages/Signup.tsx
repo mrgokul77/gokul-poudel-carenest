@@ -8,7 +8,6 @@ const Signup = () => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState("careseeker");
   const [show, setShow] = useState(false);
   const [error, setError] = useState("");
@@ -26,7 +25,6 @@ const Signup = () => {
     if (!email.trim()) nextErrors.email = UIErrorMessages.emailRequired;
     if (!password.trim()) nextErrors.password = UIErrorMessages.passwordRequired;
     if (password && password.length < 8) nextErrors.password = "Password must be at least 8 characters.";
-    if (password !== confirmPassword) nextErrors.confirmPassword = "Passwords do not match.";
 
     if (Object.keys(nextErrors).length > 0) {
       setFieldError(nextErrors);
@@ -136,21 +134,6 @@ const Signup = () => {
             {show ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
           {fieldError.password && <p className="text-red-500 text-xs mt-1">{fieldError.password}</p>}
-        </div>
-
-        <div className="mb-6 relative">
-          <label className="block text-sm text-gray-700 mb-1">Confirm Password</label>
-          <input
-            type={show ? "text" : "password"}
-            className="w-full bg-transparent border border-gray-300
-              rounded-md px-4 py-3 pr-10 text-sm
-              focus:outline-none focus:border-green-500"
-            placeholder="Confirm your Password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-          />
-          {fieldError.confirmPassword && <p className="text-red-500 text-xs mt-1">{fieldError.confirmPassword}</p>}
         </div>
 
         {/* Role */}
